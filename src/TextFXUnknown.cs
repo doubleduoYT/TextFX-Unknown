@@ -10,7 +10,7 @@ using UnityEngine;
 
 namespace HGSoft.TextFXUnknown
 {
-    [BepInPlugin("com.hgsoft.textfxunknown", "TextFX Unknown", "0.4.0")]
+    [BepInPlugin("com.hgsoft.textfxunknown", "TextFX Unknown", "0.4.1")]
     public sealed partial class TextFXUnknownPlugin : BaseUnityPlugin
     {
         private Harmony harmony;
@@ -24,12 +24,20 @@ namespace HGSoft.TextFXUnknown
         private PropertyInfo textInfoProperty;
         private float nextScan;
         private bool warned;
+        // Motion is always measured in glyph-local units, NEVER Unity world units.
+        // Even if a preset is excessively strong, a glyph cannot fly across the screen.
+        private BepInEx.Configuration.ConfigEntry<float> effectStrength;
+        private BepInEx.Configuration.ConfigEntry<float> maxGlyphTravel;
 
         private void Awake()
         {
             instance = this;
             autoDialogue = Config.Bind("Dialogue", "AutoAnimateDialogue", true,
                 "Animate recognized character dialogue automatically, even without inline tags.");
+            effectStrength = Config.Bind("Visuals", "EffectStrength", 0.40f,
+                "Multiplier for glyph movement, bounce, glitch and color. Safe default 0.40; accepted range 0..1.");
+            maxGlyphTravel = Config.Bind("Visuals", "MaxGlyphTravel", 0.12f,
+                "Maximum movement of a glyph as a fraction of its own height (clamped to 0..0.25).");
             tmpType = Type.GetType("TMPro.TMP_Text, Unity.TextMeshPro", false);
             if (tmpType == null) { Logger.LogWarning("TextMeshPro not found: TextFX Unknown is inactive."); return; }
             textProperty = tmpType.GetProperty("text", BindingFlags.Public | BindingFlags.Instance);
@@ -51,7 +59,7 @@ namespace HGSoft.TextFXUnknown
                 if (setText != null && setText.DeclaringType == type) PatchOnce(setText, patched);
             }
             InitializeDialogueHooks();
-            Logger.LogInfo("TextFX Unknown 0.4.0 loaded. Patched TMP text methods: " + patched.Count + "; AutoDialogue=" + autoDialogue.Value);
+            Logger.LogInfo("TextFX Unknown 0.4.1 loaded. Patched TMP text methods: " + patched.Count + "; AutoDialogue=" + autoDialogue.Value);
         }
 
         private static MethodInfo FindMethod(Type type, string name, int count, Type firstType = null)
@@ -252,45 +260,68 @@ namespace HGSoft.TextFXUnknown
                 var colors = (Color32[])Field(mesh, "colors32");
                 if (v < 0 || v + 3 >= vertices.Length || v + 3 >= colors.Length) continue;
                 float age = entry.BirthTimes[i] >= 0f ? now - entry.BirthTimes[i] : 0f;
-                float dx = Mathf.Sin(now * 43f + i * 13.6f) * fx.Shake * 2.4f;
-                float dy = Mathf.Cos(now * 37f + i * 7.3f) * fx.Shake * 2.4f + Mathf.Sin(now * 5.3f + i * 0.5f) * fx.Wave * 5f;
-                float kick = fx.Impact * Mathf.Exp(-Mathf.Max(0f, age) * 6f);
-                dx += Mathf.Sin(now * 88f + i) * kick * 4f;
-                dy += Mathf.Cos(now * 72f + i) * kick * 4f;
-                // Deterministic glitch-style glyph jitter, with short flickers.
-                float glitchPulse = Mathf.Sin(now * 27.3f + i * 17.91f);
-                if (fx.Glitch > 0f && glitchPulse > 0.74f)
+                // The four vertices form a TMP glyph quad. Use its LOCAL dimensions,
+                // never a hard-coded distance like 2.4 or 5 Unity units.
+                float glyphHeight = Mathf.Abs(vertices[v + 2].y - vertices[v].y);
+                if (glyphHeight < 0.000001f) continue;
+                float strength = Mathf.Clamp(effectStrength.Value, 0f, 1f);
+                // Automatic motion fades after first appearance. No ongoing wild wobble.
+                float envelope = entry.Automatic
+                    ? Mathf.Clamp01((0.85f - age) / 0.55f) : 1f;
+                float dxRatio = (Mathf.Sin(now * 30f + i * 13.6f) * fx.Shake * 0.12f);
+                float dyRatio = (Mathf.Cos(now * 26f + i * 7.3f) * fx.Shake * 0.10f
+                    + Mathf.Sin(now * 5.3f + i * 0.5f) * fx.Wave * 0.10f);
+                float kick = fx.Impact * Mathf.Exp(-Mathf.Max(0f, age) * 10f);
+                dxRatio += Mathf.Sin(now * 32f + i) * kick * 0.12f;
+                dyRatio += Mathf.Cos(now * 26f + i) * kick * 0.12f;
+                float glitchPulse = Mathf.Sin(now * 28f + i * 17.91f);
+                bool glitchActive = fx.Glitch > 0f && age < 0.35f && glitchPulse > .78f;
+                if (glitchActive)
                 {
-                    dx += Mathf.Sin(now * 81f + i * 4.8f) * fx.Glitch * 5f;
-                    dy -= fx.Glitch * 2.8f;
+                    dxRatio += Mathf.Sin(now * 45f + i * 4.8f) * fx.Glitch * 0.12f;
+                    dyRatio -= fx.Glitch * 0.035f;
                 }
+                // Clamp the combined displacement in *both* axes to 12% of glyph
+                // height by default. This keeps nearby letters in their own slots.
+                Vector2 displacement = new Vector2(dxRatio, dyRatio) *
+                    (glyphHeight * strength * envelope);
+                float maximum = glyphHeight * Mathf.Clamp(maxGlyphTravel.Value, 0f, .25f);
+                displacement = Vector2.ClampMagnitude(displacement, maximum);
+
                 float alpha = fx.FadeIn > 0 ? Mathf.Clamp01(age / fx.FadeIn) : 1f;
                 if (fx.FadeOut > 0) alpha *= Mathf.Clamp01(1f - age / fx.FadeOut);
                 alpha *= fx.Alpha;
-                float scale = fx.Ease ? 1f + Mathf.Exp(-Mathf.Max(0f, age) * 7f) * Mathf.Sin(Mathf.Max(0f, age) * 18f) * .26f : 1f;
+                // Limit entrance bounce to 6% of original size.
+                float bounce = fx.Ease
+                    ? Mathf.Exp(-Mathf.Max(0f, age) * 11f) *
+                      Mathf.Sin(Mathf.Max(0f, age) * 17f) * .06f * strength * envelope
+                    : 0f;
+                float scale = 1f + Mathf.Clamp(bounce, -.06f, .06f);
                 var center = (vertices[v] + vertices[v + 2]) * .5f;
+                float blend = (entry.Automatic ? .22f : .45f) * strength;
                 for (int j = 0; j < 4; j++)
                 {
-                    vertices[v + j] = center + (vertices[v + j] - center) * scale + new Vector3(dx, dy, 0f);
+                    vertices[v + j] = center + (vertices[v + j] - center) * scale +
+                        new Vector3(displacement.x, displacement.y, 0f);
                     Color32 c = colors[v + j];
                     c.a = (byte)Mathf.Clamp(Mathf.RoundToInt(c.a * alpha), 0, 255);
                     if (fx.TintOn)
                     {
-                        c.r = (byte)Mathf.Clamp(c.r * 0.40f + fx.TintR * 0.60f, 0f, 255f);
-                        c.g = (byte)Mathf.Clamp(c.g * 0.40f + fx.TintG * 0.60f, 0f, 255f);
-                        c.b = (byte)Mathf.Clamp(c.b * 0.40f + fx.TintB * 0.60f, 0f, 255f);
+                        c.r = (byte)Mathf.Clamp(Mathf.Lerp(c.r, fx.TintR, blend), 0f, 255f);
+                        c.g = (byte)Mathf.Clamp(Mathf.Lerp(c.g, fx.TintG, blend), 0f, 255f);
+                        c.b = (byte)Mathf.Clamp(Mathf.Lerp(c.b, fx.TintB, blend), 0f, 255f);
                     }
-                    if (fx.Glitch > 0f && glitchPulse > .84f)
+                    if (glitchActive)
                     {
-                        c.r = (byte)Mathf.Min(255f, c.r + 35f * fx.Glitch);
-                        c.b = (byte)Mathf.Min(255f, c.b + 65f * fx.Glitch);
+                        c.r = (byte)Mathf.Min(255f, c.r + 10f * fx.Glitch * strength);
+                        c.b = (byte)Mathf.Min(255f, c.b + 15f * fx.Glitch * strength);
                     }
                     if (fx.Rainbow)
                     {
-                        Color rgb = Color.HSVToRGB(Mathf.Repeat(now * .25f + i * .07f, 1f), 1f, 1f);
-                        c.r = (byte)Mathf.RoundToInt(rgb.r * 255);
-                        c.g = (byte)Mathf.RoundToInt(rgb.g * 255);
-                        c.b = (byte)Mathf.RoundToInt(rgb.b * 255);
+                        Color rgb = Color.HSVToRGB(Mathf.Repeat(now * .20f + i * .07f, 1f), .60f, 1f);
+                        c.r = (byte)Mathf.Lerp(c.r, rgb.r * 255f, blend);
+                        c.g = (byte)Mathf.Lerp(c.g, rgb.g * 255f, blend);
+                        c.b = (byte)Mathf.Lerp(c.b, rgb.b * 255f, blend);
                     }
                     colors[v + j] = c;
                 }

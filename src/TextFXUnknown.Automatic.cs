@@ -99,12 +99,23 @@ namespace HGSoft.TextFXUnknown
 
         private static bool NameLooksLikeDialogue(Component component)
         {
+            // Never treat an entire menu/canvas tree as dialogue just because a
+            // distant ancestor happens to contain "talk"/"dialog".
             int depth = 0;
-            for (var node = component.transform; depth < 6 && node != null; node = node.parent, depth++)
+            for (var node = component.transform; depth < 4 && node != null;
+                node = node.parent, depth++)
             {
-                var name = node.name.ToLowerInvariant();
-                if (name.Contains("talk") || name.Contains("dialog") || name.Contains("speech") ||
-                    name.Contains("bubble") || name.Contains("tradertext") || name.Contains("chartext"))
+                string name = node.name.ToLowerInvariant();
+                if (name.Contains("menu") || name.Contains("inventory") ||
+                    name.Contains("tooltip") || name.Contains("setting") ||
+                    name.Contains("lobby") || name.Contains("button") ||
+                    name.Contains("chatinput"))
+                    return false;
+                if (name.Contains("chartalktext") || name.Contains("tradertalktext") ||
+                    name.Contains("talktext") || name.Contains("dialoguetext"))
+                    return true;
+                if (depth <= 1 && (name.Contains("speech") || name.Contains("bubble") ||
+                    name.Contains("dialog") || name.Contains("talk")))
                     return true;
             }
             return false;
@@ -114,12 +125,13 @@ namespace HGSoft.TextFXUnknown
         // Waiting for a complete-string match starts FX only AFTER the last glyph.
         private bool MatchesRecentTalk(string visible)
         {
-            if (Time.unscaledTime - recentTalkAt > 9f || cleanRecentTalk.Length < 2) return false;
+            if (Time.unscaledTime - recentTalkAt > 5f || cleanRecentTalk.Length < 4) return false;
             string partial = StripTags(visible).Trim();
-            if (partial.Length == 0) return false;
+            // Very short prefixes like "a"/"th" can otherwise animate unrelated UI.
+            // Named character talk text still receives its first letter immediately.
+            if (partial.Length < 4) return false;
             return cleanRecentTalk.StartsWith(partial, StringComparison.OrdinalIgnoreCase) ||
-                   partial.StartsWith(cleanRecentTalk, StringComparison.OrdinalIgnoreCase) ||
-                   (partial.Length >= 4 && cleanRecentTalk.IndexOf(partial, StringComparison.OrdinalIgnoreCase) >= 0);
+                   partial.StartsWith(cleanRecentTalk, StringComparison.OrdinalIgnoreCase);
         }
 
         private static bool HasAny(string s, params string[] terms)

@@ -4,7 +4,7 @@
 
 TextFX Unknown is an **unofficial, experimental BepInEx 5 mod** that gives dialogue a bit more personality. Use simple inline tags to make words shake, sway, appear gradually, or land with an impact. It also works with TextMeshPro's existing formatting tags, so you can combine animation with color, bold text, and font sizes.
 
-> **Preview build:** This project targets the Windows Mono version of **Casualties: Unknown 7.0 Demo (Unity 2022.3.62f3)**. The plugin has been tested by a community user in the 7.0 demo for a basic wave effect, but this new version's instant-per-character behavior has not yet been confirmed in a live game. It is not confirmed to work in every scene or in the full release. Please report any issues with the BepInEx log attached.
+> **Preview build:** This project targets the Windows Mono version of **Casualties: Unknown 7.0 Demo (Unity 2022.3.62f3)**. The plugin has been tested by a community user in the 7.0 demo for a basic wave effect, but v0.4.0's effects were reported as too large and scattered across the screen, prompting these safety limits. v0.4.1 has not yet been confirmed in a live game. It is not confirmed to work in every scene or in the full release. Please report any issues with the BepInEx log attached.
 
 ## What does it do?
 
@@ -15,9 +15,22 @@ TextFX Unknown is an **unofficial, experimental BepInEx 5 mod** that gives dialo
 - **TextMeshPro formatting:** preserve built-in tags like `<color>`, `<b>`, `<i>`, `<size>`, and `<sprite>`.
 - **Korean and English:** the effects work with both, as long as the game actually passes the tagged text to a TMP text component.
 
-## Automatic dialogue animation — v0.4.0
+## Automatic dialogue animation — v0.4.1
 
-**No localization JSON edits required.** The game still controls the speed and visibility of each letter; TextFX decorates the characters as soon as they become visible. Automatic dialogue detection works with both incremental text changes (`H → He → Hel...`) and TextMeshPro's built-in `maxVisibleCharacters` reveal. A short-lived animation state remembers the appearance time of **each glyph**, so newly revealed characters animate immediately instead of waiting for the end of a line.
+**No localization JSON edits required.** The game still controls the speed and visibility of each letter; TextFX decorates the characters as soon as they become visible. Automatic dialogue detection works with both incremental text changes (`H → He → Hel...`) and TextMeshPro's built-in `maxVisibleCharacters` reveal. An animation state remembers the appearance time of **each glyph**, so newly revealed characters animate immediately instead of waiting for the end of a line. **v0.4.1 keeps every moving letter near its original position**: motion is measured as a percentage of that glyph's actual height, then strictly capped.
+
+### Adjust the intensity
+
+v0.4.1 greatly reduces excessively large text effects seen in v0.4.0. The plugin applies two safety controls even when an animated tag requests strong shake:
+
+- `EffectStrength = 0.40` — gentle default multiplier for shake, bounce, glitch, and colors (clamped to 0–1).
+- `MaxGlyphTravel = 0.12` — hard limit on how far a letter can move, expressed as a fraction of its own height (hard-capped at 0.25).
+
+After first appearing, automatic motion eases out in about **0.85 seconds**. The original C:U typewriter stays in control of letter visibility. No font is allowed to jump by absolute world-space distances.
+
+You can change the values in `BepInEx/config/com.hgsoft.textfxunknown.cfg` under `[Visuals]`. For an even calmer effect, try `EffectStrength = 0.25` and `MaxGlyphTravel = 0.08`.
+
+Automatic effects now prioritize named character dialogue targets and require at least four matching characters for fallback text matching. This reduces accidental animation of unrelated interface text.
 
 ### Emotion-aware presets
 
@@ -46,9 +59,9 @@ No external character or item assets are bundled. **Textures, images, portraits 
 ## Installing
 
 1. Install **BepInEx 5 (Mono, Windows x64)** in your copy of Casualties: Unknown. [BepInEx releases](https://github.com/BepInEx/BepInEx/releases).
-2. Open the [latest TextFX Unknown release](../../releases) and download `TextFX-Unknown-v0.4.0-pre.1.zip`.
+2. Open the [latest TextFX Unknown release](../../releases) and download `TextFX-Unknown-v0.4.1-pre.1.zip`.
 3. From the ZIP, extract **`BepInEx/plugins/TextFXUnknown.dll`** into the corresponding folder inside your game directory.
-4. Launch the game and look for `TextFX Unknown 0.4.0 loaded` in `BepInEx/LogOutput.log`.
+4. Launch the game and look for `TextFX Unknown 0.4.1 loaded` in `BepInEx/LogOutput.log`.
 
 The ZIP also contains editable **source code**, but you don't need it just to play. It intentionally **does not contain a README**, BepInEx itself, game files, or Unity reference DLLs.
 
