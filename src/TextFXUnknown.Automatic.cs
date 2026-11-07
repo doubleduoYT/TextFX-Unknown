@@ -184,9 +184,11 @@ namespace HGSoft.TextFXUnknown
             }
         }
 
-        private static FxParsed BuildEffect(string raw, string emotion, string speaker, bool diagnostic)
+        private static FxParsed BuildEffect(string raw, string emotion, string speaker, bool diagnostic,
+            string curatedPrefix = null)
         {
-            string prefix = diagnostic ? "<shake=1.1><glitch=0.8><wave=0.9><rainbow>" : StyleFor(emotion, speaker);
+            string prefix = diagnostic ? "<shake=1.1><glitch=0.8><wave=0.9><rainbow>" :
+                (curatedPrefix ?? StyleFor(emotion, speaker));
             // Synthetic tags are only used to initialize per-character FX metadata.
             // They are removed by FxParser. The game never receives replacement text.
             string suffix = "";
@@ -258,9 +260,12 @@ namespace HGSoft.TextFXUnknown
                 string speaker = SpeakerOf(component);
                 if (speaker == "unknown" && matched) speaker = recentSpeaker;
                 string fullLine = matched && cleanRecentTalk.Length > 0 ? recentTalk : raw;
-                string emotion = EmotionOf(fullLine);
-                string mode = diagnostic ? "diagnostic" : speaker + ":" + emotion;
-                var parsed = BuildEffect(raw, emotion, speaker, diagnostic);
+                string curatedPrefix = null;
+                bool curated = TryCuratedProfile(fullLine, raw, speaker, out curatedPrefix);
+                string emotion = curated ? "curated" : EmotionOf(fullLine);
+                string mode = diagnostic ? "diagnostic" :
+                    (curated ? "curated:" + speaker + ":" + curatedPrefix : speaker + ":" + emotion);
+                var parsed = BuildEffect(raw, emotion, speaker, diagnostic, curatedPrefix);
                 // Same expanding text object: preserve the birth time of each old glyph.
                 bool continuing = exists && existing.Automatic &&
                     raw.StartsWith(existing.Parsed.Text, StringComparison.Ordinal);
@@ -288,7 +293,8 @@ namespace HGSoft.TextFXUnknown
                 if (autoApplied <= 22)
                     Logger.LogInfo("[TextFX] Auto FX started/updated: " + component.gameObject.name +
                         " emotion=" + emotion + " speaker=" + speaker +
-                        " chars=" + raw.Length + (continuing ? " (continuing)" : " (new)"));
+                        " curated=" + curated + " chars=" + raw.Length +
+                        (continuing ? " (continuing)" : " (new)"));
             }
         }
     }

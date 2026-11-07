@@ -4,7 +4,7 @@
 
 TextFX Unknown is an **unofficial, experimental BepInEx 5 mod** that gives dialogue a bit more personality. Use simple inline tags to make words shake, sway, appear gradually, or land with an impact. It also works with TextMeshPro's existing formatting tags, so you can combine animation with color, bold text, and font sizes.
 
-> **Preview build:** This project targets the Windows Mono version of **Casualties: Unknown 7.0 Demo (Unity 2022.3.62f3)**. The plugin has been tested by a community user in the 7.0 demo for a basic wave effect, but v0.4.0 was reported as too large and v0.4.1 as too subtle; v0.5.0 balances visible motion with safe per-glyph displacement limits. This build has not yet been visually tested in-game. It is not confirmed to work in every scene or in the full release. Please report any issues with the BepInEx log attached.
+> **Preview build:** This project targets the Windows Mono version of **Casualties: Unknown 7.0 Demo (Unity 2022.3.62f3)**. The plugin has been tested by a community user in the 7.0 demo for a basic wave effect, but v0.4.0 was reported as too large, v0.4.1 as too subtle, and v0.5.0 as too wave-heavy. v0.6.0 adds hand-curated dialogue effects. This build has not yet been visually tested in-game. It is not confirmed to work in every scene or in the full release. Please report any issues with the BepInEx log attached.
 
 ## What does it do?
 
@@ -15,7 +15,39 @@ TextFX Unknown is an **unofficial, experimental BepInEx 5 mod** that gives dialo
 - **TextMeshPro formatting:** preserve built-in tags like `<color>`, `<b>`, `<i>`, `<size>`, and `<sprite>`.
 - **Korean and English:** the effects work with both, as long as the game actually passes the tagged text to a TMP text component.
 
-## Automatic dialogue animation — v0.5.0
+## Hand-curated per-dialogue effects — v0.6.0
+
+**Not just keyword detection or a wave effect on every line.** The C:U 7.0 demo's actual English dialogue and the supplied matching Korean translation were reviewed by character and situation: **1,895 character lines, 177 event groups** (Experiment: 1,604, Milky: 146, Dune: 145). Each event was assigned a specifically selected animation, plus **194 individual line overrides** where one phrase has a different tone than the surrounding category. There are **61 authored effect presets**, including calm, fear, delight, nausea, curiosity, grief, fatigue, regret, warning, trading, comfort, anger and character-specific Dune delivery.
+
+The plugin first tries to match the spoken **full sentence** against the manually curated table. Only dialogue absent from that table falls back to the old automatic classifier. Many ordinary lines now use a fade/bounce rather than constant wave.
+
+### How phrase matching works
+
+The DLL contains **only event IDs, indices and animation presets**; it does **not** bundle original copyrighted game dialogue. When the game launches, TextFX reads its installed `CasualtiesUnknown_Data/Lang/EN.json` and any compatible localized JSON in BepInEx plugins/config or the game's persistent-data directory. It builds a per-character phrase index using each `character[event][index]` and applies the chosen style as the line appears.
+
+For your Korean language pack, if the plugin does not detect the original `ko-KR.json` in an existing mod folder, put **your own copy** at `BepInEx/config/TextFXUnknown/ko-KR.json`. Restart C:U. No text is modified or transmitted; only the local TextMeshPro letter meshes are animated.
+
+Check the BepInEx log for `[TextFX] Curated dialogue:` and subsequent `curated=True` entries. **1,895 indexed entries per full matching locale** is expected; unrelated UI and extra custom language lines remain unaffected, or receive a fallback if identified as character speech.
+
+The character effect still begins on the first visible glyph, preserving the game's own typewriter timing. F8 is a separate six-second visible rainbow/shake/glitch test.
+
+### Curated examples by context
+
+| Source dialogue situation | Hand-selected effect |
+| --- | --- |
+| First arrival | Cautious fade, hopeful bounce or surprise, with line-specific overrides |
+| Tasty food | Light, happy entrance |
+| Bad food / nausea | Disgusted shake and subdued green |
+| Injured / bleeding | Pain impacts or frightened tremors |
+| Exhaustion / grief | Tired fades and muted color, not constant wave |
+| Trader greetings | Polite entrance and warm bounce |
+| Trader warnings / fighting | Short, restrained impact and tense shake |
+| Milky's normal dialogue | Calm, precise motion |
+| Dune's trader dialogue | Distinct friendly, awkward and threatening variants |
+
+The precise English and Korean localization files are **read at runtime**, never shipped in the release ZIP. If a newer game build changes a line or uses a non-TextMeshPro renderer, curated matching may not apply; this preview needs in-game testing.
+
+## Automatic dialogue animation — v0.6.0
 
 **No localization JSON edits required.** The game still controls the speed and visibility of each letter; TextFX decorates the characters as soon as they become visible. Automatic dialogue detection works with both incremental text changes (`H → He → Hel...`) and TextMeshPro's built-in `maxVisibleCharacters` reveal. An animation state remembers the appearance time of **each glyph**, so newly revealed characters animate immediately instead of waiting for the end of a line. **Letters stay near their original positions**: all motion is measured as a percentage of each glyph's height, then strictly capped.
 
@@ -69,9 +101,9 @@ No external character or item assets are bundled. **Textures, images, portraits 
 ## Installing
 
 1. Install **BepInEx 5 (Mono, Windows x64)** in your copy of Casualties: Unknown. [BepInEx releases](https://github.com/BepInEx/BepInEx/releases).
-2. Open the [latest TextFX Unknown release](../../releases) and download `TextFX-Unknown-v0.5.0-pre.1.zip`.
+2. Open the [latest TextFX Unknown release](../../releases) and download `TextFX-Unknown-v0.6.0-pre.1.zip`.
 3. From the ZIP, extract **`BepInEx/plugins/TextFXUnknown.dll`** into the corresponding folder inside your game directory.
-4. Launch the game and look for `TextFX Unknown 0.5.0 loaded` in `BepInEx/LogOutput.log`.
+4. Launch the game and look for `TextFX Unknown 0.6.0 loaded` in `BepInEx/LogOutput.log`.
 
 The ZIP also contains editable **source code**, but you don't need it just to play. It intentionally **does not contain a README**, BepInEx itself, game files, or Unity reference DLLs.
 

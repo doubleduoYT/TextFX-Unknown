@@ -10,7 +10,7 @@ using UnityEngine;
 
 namespace HGSoft.TextFXUnknown
 {
-    [BepInPlugin("com.hgsoft.textfxunknown", "TextFX Unknown", "0.5.0")]
+    [BepInPlugin("com.hgsoft.textfxunknown", "TextFX Unknown", "0.6.0")]
     public sealed partial class TextFXUnknownPlugin : BaseUnityPlugin
     {
         private Harmony harmony;
@@ -74,7 +74,8 @@ namespace HGSoft.TextFXUnknown
                 if (setText != null && setText.DeclaringType == type) PatchOnce(setText, patched);
             }
             InitializeDialogueHooks();
-            Logger.LogInfo("TextFX Unknown 0.5.0 loaded. Patched TMP text methods: " + patched.Count + "; AutoDialogue=" + autoDialogue.Value);
+            InitializeCuratedProfiles();
+            Logger.LogInfo("TextFX Unknown 0.6.0 loaded. Patched TMP text methods: " + patched.Count + "; AutoDialogue=" + autoDialogue.Value);
         }
 
         private static MethodInfo FindMethod(Type type, string name, int count, Type firstType = null)
