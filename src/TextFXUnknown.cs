@@ -10,8 +10,8 @@ using UnityEngine;
 
 namespace HGSoft.TextFXUnknown
 {
-    [BepInPlugin("com.hgsoft.textfxunknown", "TextFX Unknown", "0.3.0")]
-    public sealed class TextFXUnknownPlugin : BaseUnityPlugin
+    [BepInPlugin("com.hgsoft.textfxunknown", "TextFX Unknown", "0.3.1")]
+    public sealed partial class TextFXUnknownPlugin : BaseUnityPlugin
     {
         private Harmony harmony;
         private static TextFXUnknownPlugin instance;
@@ -28,6 +28,8 @@ namespace HGSoft.TextFXUnknown
         private void Awake()
         {
             instance = this;
+            autoDialogue = Config.Bind("Dialogue", "AutoAnimateDialogue", true,
+                "Animate recognized character dialogue automatically, even without inline tags.");
             tmpType = Type.GetType("TMPro.TMP_Text, Unity.TextMeshPro", false);
             if (tmpType == null) { Logger.LogWarning("TextMeshPro not found: TextFX Unknown is inactive."); return; }
             textProperty = tmpType.GetProperty("text", BindingFlags.Public | BindingFlags.Instance);
@@ -43,10 +45,13 @@ namespace HGSoft.TextFXUnknown
             {
                 var type = Type.GetType(typeName + ", Unity.TextMeshPro", false);
                 if (type == null) continue;
-                PatchOnce(type.GetProperty("text", BindingFlags.Instance | BindingFlags.Public)?.GetSetMethod(), patched);
-                PatchOnce(FindMethod(type, "SetText", 1, typeof(string)), patched);
+                var setter = type.GetProperty("text", BindingFlags.Instance | BindingFlags.Public)?.GetSetMethod();
+                if (setter != null && setter.DeclaringType == type) PatchOnce(setter, patched);
+                var setText = FindMethod(type, "SetText", 1, typeof(string));
+                if (setText != null && setText.DeclaringType == type) PatchOnce(setText, patched);
             }
-            Logger.LogInfo("TextFX Unknown 0.3.0 loaded. Patched TMP text methods: " + patched.Count);
+            InitializeDialogueHooks();
+            Logger.LogInfo("TextFX Unknown 0.3.1 loaded. Patched TMP text methods: " + patched.Count + "; AutoDialogue=" + autoDialogue.Value);
         }
 
         private static MethodInfo FindMethod(Type type, string name, int count, Type firstType = null)
@@ -62,7 +67,7 @@ namespace HGSoft.TextFXUnknown
 
         private void PatchOnce(MethodInfo target, HashSet<MethodBase> patched)
         {
-            if (target == null || !patched.Add(target)) return;
+            if (target == null || target.IsAbstract || target.GetMethodBody() == null || !patched.Add(target)) return;
             harmony.Patch(target, prefix: new HarmonyMethod(typeof(TextFXUnknownPlugin), nameof(BeforeTextSet)));
         }
 
@@ -77,16 +82,25 @@ namespace HGSoft.TextFXUnknown
             if (component != null) plugin.Animate(component, parsed);
         }
 
-        private void Animate(Component component, FxParsed parsed)
+        private void Animate(Component component, FxParsed parsed, bool automatic = false)
         {
-            animations[component.GetInstanceID()] = new TextAnimation(component, parsed);
+            var animation = new TextAnimation(component, parsed);
+            animation.Automatic = automatic;
+            animations[component.GetInstanceID()] = animation;
+            if (loggedTags < 12 && !automatic)
+            {
+                loggedTags++;
+                Logger.LogInfo("[TextFX] Tagged TMP text animated: " + component.gameObject.name);
+            }
         }
 
         private void Update()
         {
             // Some game code changes TMP text without using its single-string setter.
             // The slow scan is restricted to active scene objects with effect tags.
-            if (tmpType == null || Time.unscaledTime < nextScan) return;
+            if (tmpType == null) return;
+            if (Input.GetKeyDown(KeyCode.F8)) StartDiagnostic();
+            if (Time.unscaledTime < nextScan) return;
             nextScan = Time.unscaledTime + 0.5f;
             foreach (var candidate in Resources.FindObjectsOfTypeAll(tmpType))
             {
@@ -99,6 +113,7 @@ namespace HGSoft.TextFXUnknown
                 Animate(component, parsed);
                 textProperty.SetValue(candidate, parsed.Text, null);
             }
+            ScanAutomaticDialogue();
         }
 
         private void LateUpdate()
@@ -110,6 +125,11 @@ namespace HGSoft.TextFXUnknown
                 var entry = pair.Value;
                 var component = entry.Component;
                 if (component == null || !component.gameObject.activeInHierarchy) { expired.Add(pair.Key); continue; }
+                if (entry.Automatic && Time.unscaledTime - entry.Started > 5f)
+                {
+                    expired.Add(pair.Key);
+                    continue;
+                }
                 var visibleText = textProperty.GetValue(component, null) as string;
                 if (!string.Equals(visibleText, entry.Parsed.Text, StringComparison.Ordinal))
                 {
@@ -151,7 +171,7 @@ namespace HGSoft.TextFXUnknown
                 cursor += fx.Pause + fx.Speed;
                 if (elapsed >= cursor) reveal++;
             }
-            if (entry.LastVisible != reveal)
+            if (entry.Parsed.HasTiming && entry.LastVisible != reveal)
             {
                 maxVisibleProperty.SetValue(component, reveal, null);
                 entry.LastVisible = reveal;
@@ -229,6 +249,7 @@ namespace HGSoft.TextFXUnknown
             internal readonly FxParsed Parsed;
             internal readonly float Started;
             internal int LastVisible = -1;
+            internal bool Automatic;
             internal TextAnimation(Component component, FxParsed parsed)
             { Component = component; Parsed = parsed; Started = Time.unscaledTime; }
         }
@@ -245,6 +266,7 @@ namespace HGSoft.TextFXUnknown
     {
         internal string Text;
         internal bool HasEffects;
+        internal bool HasTiming;
         internal readonly Dictionary<int, FxState> ByIndex = new Dictionary<int, FxState>();
         internal FxState At(int sourceIndex) { FxState state; return ByIndex.TryGetValue(sourceIndex, out state) ? state : new FxState(); }
     }
@@ -295,7 +317,7 @@ namespace HGSoft.TextFXUnknown
                             {
                                 if (stack.Count > 0 && stack.Peek().Key == kind) current = stack.Pop().Value;
                             }
-                            else if (kind == "pause") pause += Number(arg, .3f);
+                            else if (kind == "pause") { pause += Number(arg, .3f); result.HasTiming = true; }
                             else
                             {
                                 stack.Push(new KeyValuePair<string, FxState>(kind, current.Copy()));
@@ -307,7 +329,7 @@ namespace HGSoft.TextFXUnknown
                                     case "impact": current.Impact = Number(arg, 1f); break;
                                     case "fadein": current.FadeIn = Number(arg, .5f); break;
                                     case "fadeout": current.FadeOut = Number(arg, .5f); break;
-                                    case "speed": current.Speed = Number(arg, .08f); break;
+                                    case "speed": current.Speed = Number(arg, .08f); result.HasTiming = true; break;
                                     case "ease": current.Ease = true; break;
                                     case "alpha": current.Alpha = Mathf.Clamp01(Number(arg, .6f)); break;
                                     case "rainbow": current.Rainbow = true; break;

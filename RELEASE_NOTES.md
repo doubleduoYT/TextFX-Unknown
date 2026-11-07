@@ -1,20 +1,19 @@
-# TextFX Unknown v0.3.0 — Preview 1
+# TextFX Unknown v0.3.1 Preview 1
 
-The first **source-and-binary preview** of TextFX Unknown, an unofficial BepInEx 5 text-effects mod for Casualties: Unknown.
+**Fix candidate for plain/unanimated dialogue in v0.3.0.**
 
-### Included
-- A compiled `TextFXUnknown.dll` for BepInEx 5 / Unity Mono.
-- Full editable C# source and `.csproj`.
-- Korean and English example JSON strings.
-- A reference-download build helper.
+### Changes
+- Added automatic animation for detected C:U character dialogue; editing localization JSON is no longer required for basic wave/fade effects.
+- Added reflection-based `Talker.Talk` observation and object-name matching for on-screen TextMeshPro elements.
+- Added **F8** six-second visual diagnostic and `[TextFX]` logs for talk events, target detection, and animation attempts.
+- Skip abstract/unimplemented TMP patch targets to reduce HarmonyX warnings.
+- Only override `maxVisibleCharacters` when explicit speed/pause tags request typewriter timing.
+- Original localization strings remain untouched. Source and compiled mod DLL are in the ZIP; README stays on GitHub.
 
-### Effects
-Shake, wave, fade in/out, configurable character speed, pause, letter impact, entrance easing, rainbow, and opacity. Existing TextMeshPro rich-text formatting is kept intact.
+### Limitations
+This release is compiled by GitHub Actions, but **not tested inside a running copy of the game**. Unity legacy UI Text is not supported for glyph animation. Automatic dialogue detection may miss unusual scenes, and other mods can alter text rendering.
 
-### Installing
-Extract `BepInEx/plugins/TextFXUnknown.dll` from the ZIP into your game directory. Install BepInEx 5 separately.
+### Installation
+Replace `BepInEx/plugins/TextFXUnknown.dll` with this version. Start the game and check `BepInEx/LogOutput.log` for `TextFX Unknown 0.3.1 loaded`. If dialogue stays plain, press **F8** and attach the corresponding `[TextFX]` log lines to a GitHub issue.
 
-### Important limitations
-**Experimental, not gameplay-verified.** Developed for the 7.0 Demo's Unity 2022.3 Mono environment. Not confirmed for the final release. No image replacement or full dialogue-panel shake. The ZIP intentionally contains **no README**: see the [repository README](../../README.md) for usage and examples.
-
-No game assets or third-party reference DLLs are distributed in this release.
+This is an unofficial community mod, not affiliated with the original game's rights holders.

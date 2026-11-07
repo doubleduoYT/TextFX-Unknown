@@ -15,14 +15,33 @@ TextFX Unknown is an **unofficial, experimental BepInEx 5 mod** that gives dialo
 - **TextMeshPro formatting:** preserve built-in tags like `<color>`, `<b>`, `<i>`, `<size>`, and `<sprite>`.
 - **Korean and English:** the effects work with both, as long as the game actually passes the tagged text to a TMP text component.
 
+## Automatic dialogue animation (new in 0.3.1)
+
+You **do not need to edit your language JSON** to see the basic effect. By default, the plugin attempts to identify character dialogue through `Talker.Talk`, TextMeshPro object names, and matching on-screen text. Recognized lines receive subtle wave/fade motion; exclamations can shake. Your existing English or Korean game text remains unchanged.
+
+If a scene uses Unity's legacy UI Text component rather than TextMeshPro, glyph animation is not yet supported for that component. This is still a preview and detection is best effort.
+
+### Diagnose rendering with F8
+
+While in a game scene, press **F8**. For six seconds the mod tries to animate up to 10 visible TextMeshPro labels with an exaggerated rainbow/wave/shake effect. Inspect `BepInEx/LogOutput.log` for `[TextFX]` messages:
+
+- `Talker.Talk patched overloads:` — whether the game dialogue hook was found.
+- `Talker.Talk observed` — whether dialogue events actually reached it.
+- `Auto effect applied to TMP` — which text objects were animated.
+- `Unable to render text effects` — whether TMP mesh manipulation failed.
+
+If F8 animates text but character speech stays plain, please send the log: dialogue detection may need a game-specific fix. If F8 doesn't animate even ordinary UI text, the TMP rendering path needs investigating.
+
+To turn off automatic animation, change `AutoAnimateDialogue = false` under `[Dialogue]` in `BepInEx/config/com.hgsoft.textfxunknown.cfg`. Explicit effect tags still work when this option is disabled.
+
 No external character or item assets are bundled. **This version does not replace textures, images, sprites, or character portraits, and it does not shake the entire dialogue window.**
 
 ## Installing
 
 1. Install **BepInEx 5 (Mono, Windows x64)** in your copy of Casualties: Unknown. [BepInEx releases](https://github.com/BepInEx/BepInEx/releases).
-2. Open the [latest TextFX Unknown release](../../releases) and download `TextFX-Unknown-v0.3.0-pre.1.zip`.
+2. Open the [latest TextFX Unknown release](../../releases) and download `TextFX-Unknown-v0.3.1-pre.1.zip`.
 3. From the ZIP, extract **`BepInEx/plugins/TextFXUnknown.dll`** into the corresponding folder inside your game directory.
-4. Launch the game and look for `TextFX Unknown 0.3.0 loaded` in `BepInEx/LogOutput.log`.
+4. Launch the game and look for `TextFX Unknown 0.3.1 loaded` in `BepInEx/LogOutput.log`.
 
 The ZIP also contains editable **source code**, but you don't need it just to play. It intentionally **does not contain a README**, BepInEx itself, game files, or Unity reference DLLs.
 
@@ -60,7 +79,7 @@ All custom tags are removed before TMP renders the text. Regular TMP rich-text t
 - The game must use TextMeshPro for the affected text. If a scene uses a different text renderer, these effects will not appear.
 - Other mods that replace or override TMP text methods or dialogue may interfere.
 - This is a **preview** and has not been validated in a live game session. A successful CI build is not the same as a gameplay test.
-- These effects apply to tagged text; untagged dialogue remains unchanged. Some unusual markup combinations may not animate correctly.
+- Tagged text is always supported where TMP is detected. Untagged dialogue is automatically animated when recognized. Some scenes, other renderers, and unusual markup combinations may not be supported.
 
 ## Build from source
 
