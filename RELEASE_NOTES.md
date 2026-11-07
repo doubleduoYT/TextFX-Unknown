@@ -1,25 +1,27 @@
-# TextFX Unknown v0.7.0 — 50 Effects Preview 1
+# TextFX Unknown v0.7.1 — Emergency Glyph Scaling Hotfix
 
-The user-supplied catalog of **50 text effects** is now represented by parser tags and an extended per-glyph TextMeshPro animation layer across five families.
+This hotfix responds to screenshots of individual Korean glyphs growing until they cover the entire C:U gameplay screen in v0.7.0.
 
-### New effects
-- **Movement (12):** Bounce, Sway, Rotate, Pendulum, Tremble, Heartbeat, Breathe, Drop, Float, Slide, Twist, Elastic.
-- **Reveal/exit (10):** Fade In, Fade Out, Zoom In, Zoom Out, Spring, Typewriter, Stagger, Blur Reveal*, Spin In, Assemble.
-- **Color/visual (10):** Rainbow, Color Pulse, Gradient, Sparkle, Neon Glow*, Flicker, Hologram, Afterimage*, Chromatic Aberration*, Glitch.
-- **Emotion (10):** Fear, Rage, Surprise, Happy, Sadness, Confusion, Whisper, Scream, Exhausted, Insanity.
-- **Advanced (8):** Accelerate, Decelerate, Word Emphasis, Punctuation Pause, Screen Shake*, Shockwave, Ripple, Corruption*.
+## Root cause and correction
 
-Items marked * are **visual approximations, not their full cinematic equivalent**. Blur uses alpha/scale instead of a blur pass; Neon is color emphasis without a glow outline; Afterimage uses tint oscillation without cloning glyph meshes; Chromatic uses RGB tint oscillation without actual RGB channel offsets; Screen Shake moves text glyphs but not the whole dialogue window; Corruption does not replace actual characters.
+The previous renderer used `textInfo.meshInfo.vertices` as the input geometry for the next frame. Those positions could still be **transformed from the previous frame**, so repeated scaling and rotations compounded indefinitely, despite being clamped within each individual frame.
 
-### Changes to real C:U dialogue
-- Reassigned **all 61** human-curated context presets used across **177 event groups and 194 phrase exceptions**.
-- Previously wave-heavy dialogue now uses distinct animations: exhaustion/breathing, hope/float, pain/tremble, trading/slide, surprise/spring, warning/shockwave, Dune's calm/cautious rotation and more.
-- Existing per-phrase locale matching takes precedence, then normal fallback for unidentified character speech.
-- Supports composition such as `<colorpulse=#FF0000,#00FFFF>`, `<bounce=0.6>`, `<spring=0.8>` in custom text.
-- Auto dialogue preserves C:U's own typewriter. Advanced timing controls activate when tagged explicitly.
+**Fix:** Read the canonical original quad corners (`TMP_CharacterInfo.bottomLeft/topLeft/topRight/bottomRight`) instead. Every new frame transforms each glyph **from its source corners**; last frame's already modified vertices are never used as the starting size or center. Request fresh TextMeshPro geometry before rendering and preserve original per-line mesh colors to prevent cumulative alpha/tint changes.
 
-### Safety, installation, verification
-- Every glyph's translation is clamped to the configured local travel limit (maximum 30% of its own height); rotation ±18° and scale 70–130%.
-- Windows Mono, BepInEx 5, C:U 7.0 demo; full release, Android, and IL2CPP are not validated.
-- Replace `BepInEx/plugins/TextFXUnknown.dll`. Confirm `TextFX Unknown 0.7.0 loaded` in BepInEx log. The ZIP contains the built DLL and editable source/tests **without README or game assets**.
-- CI verifies catalog count, curated mapping metadata, and successful compilation; **visual behavior in the running game still requires testing**.
+Additional safeguards:
+- Absolute per-frame output scale limited to **85–115% relative to original glyph geometry**.
+- Vertex displacement (including combined scaling, rotation, translation) limited to **45% of the original glyph height**.
+- **F7 emergency toggle**: disables/restores TextFX visuals immediately, with a TMP mesh reset, without modifying game files or configs.
+- All 50 effects, 61 curated dialogue presets, 177 event groups and 194 per-line exceptions are retained.
+- Original C:U typewriter timing remains under the game's control.
+
+## Installation
+
+1. **Completely exit** C:U.
+2. Replace `BepInEx/plugins/TextFXUnknown.dll` with the new file inside this ZIP.
+3. Start C:U; look for `TextFX Unknown 0.7.1 loaded` in `BepInEx/LogOutput.log`.
+4. If any issue reoccurs, press F7 and attach a fresh log/screenshot when reporting the problem.
+
+The release ZIP contains the compiled DLL, editable source and tests; README remains on GitHub and no original game assets are bundled.
+
+GitHub Actions validates source safeguards and compilation. **Visual correctness has not yet been confirmed in a live C:U gameplay session.** Unofficial Windows Mono/BepInEx 5 fan mod by DoubDu / HGSoft.

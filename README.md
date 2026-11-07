@@ -4,7 +4,7 @@
 
 TextFX Unknown is an **unofficial, experimental BepInEx 5 mod** that gives dialogue a bit more personality. Use simple inline tags to make words shake, sway, appear gradually, or land with an impact. It also works with TextMeshPro's existing formatting tags, so you can combine animation with color, bold text, and font sizes.
 
-> **Preview build:** This project targets the Windows Mono version of **Casualties: Unknown 7.0 Demo (Unity 2022.3.62f3)**. The plugin has been tested by a community user in the 7.0 demo for a basic wave effect, but v0.4.0 was reported as too large, v0.4.1 as too subtle, and v0.5.0 as too wave-heavy. v0.6.0 adds hand-curated dialogue effects. This build has not yet been visually tested in-game. It is not confirmed to work in every scene or in the full release. Please report any issues with the BepInEx log attached.
+> **Preview build:** This project targets the Windows Mono version of **Casualties: Unknown 7.0 Demo (Unity 2022.3.62f3)**. The plugin has been tested by a community user in the 7.0 demo for a basic wave effect, but v0.4.0 was reported as too large, v0.4.1 as too subtle, and v0.5.0 as too wave-heavy. v0.6.0 added curated dialogue, v0.7.0 expanded to 50 effects but had a critical cumulative glyph-scaling bug. v0.7.1 addresses that bug. Visual testing of this hotfix inside the running game is pending. It is not confirmed to work in every scene or in the full release. Please report any issues with the BepInEx log attached.
 
 ## What does it do?
 
@@ -14,6 +14,20 @@ TextFX Unknown is an **unofficial, experimental BepInEx 5 mod** that gives dialo
 - **Easing and rainbow:** add a small entrance bounce or continuously shifting letter colors.
 - **TextMeshPro formatting:** preserve built-in tags like `<color>`, `<b>`, `<i>`, `<size>`, and `<sprite>`.
 - **Korean and English:** the effects work with both, as long as the game actually passes the tagged text to a TMP text component.
+
+## v0.7.1 hotfix: runaway text scaling
+
+**Critical fix for the giant, screen-covering letters observed in v0.7.0.** Previous versions read and transformed TMP mesh vertices that could already contain the prior frame's effect. Repeating a 1.02–1.30 scale on last frame's mesh can compound exponentially, overwhelming any per-frame scale cap.
+
+The fixed renderer obtains all four **original glyph corners from `TMP_CharacterInfo`** every frame and computes offsets, rotation, stretch and size *relative to those unmodified positions*. It also requests a text-mesh refresh and retains an original-color buffer per dialogue line, preventing runaway color multiplication. An additional absolute safety cap restricts each glyph to **85–115% of its original size**, and limits each transformed vertex to 45% of that glyph's height from its original position. Dialogue animation and the 50 effect tags remain enabled.
+
+### F7 emergency switch
+
+Press **F7** in-game to immediately stop all TextFX rendering for the current session and ask TextMeshPro to restore its original meshes. Press it again to enable TextFX. The switch does not edit or delete configuration, translation JSON or game assets. Use F7 if effects ever obscure gameplay again.
+
+To install, **exit the game completely**, replace `BepInEx/plugins/TextFXUnknown.dll` with the version from `v0.7.1-pre.1`, restart, and confirm `TextFX Unknown 0.7.1 loaded` in `BepInEx/LogOutput.log`. Do not try to hot-swap the DLL while C:U is running.
+
+This fixes a specific accumulation mechanism in code. GitHub Actions verifies compilation and safety invariants, **not live rendering inside the game**. Please report any remaining visual problems with a new screenshot and BepInEx log.
 
 ## The 50-effect catalog (v0.7.0)
 
@@ -46,7 +60,7 @@ TextFX Unknown now recognizes **50 effect tags in five families**. Each can be m
 
 **Important rendering limits:** Actual blur, luminous outlines, duplicate afterimages, true RGB split, full-canvas shaking, and animated character substitution are separate shader/mesh/text-rendering features and are **not implemented** by this build. The affected tags provide the stated approximations only. The other animations use real per-glyph TextMeshPro vertex transformations.
 
-The maximum per-glyph travel remains bounded by `MaxGlyphTravel` (up to 30% of each glyph's height). Rotation is capped at ±18°, scaling at 70–130%, and the game's native typewriter remains untouched for automatic dialogue. Changes in game locale text still use the manual curated mapping when matched.
+The maximum per-glyph travel remains bounded by `MaxGlyphTravel` (up to 30% of each glyph's height). Rotation is capped at ±18°, scaling at **85–115% of original glyph size**, and the game's native typewriter remains untouched for automatic dialogue. Changes in game locale text still use the manual curated mapping when matched.
 
 ## Hand-curated per-dialogue effects — v0.7.0
 
@@ -134,9 +148,9 @@ No external character or item assets are bundled. **Textures, images, portraits 
 ## Installing
 
 1. Install **BepInEx 5 (Mono, Windows x64)** in your copy of Casualties: Unknown. [BepInEx releases](https://github.com/BepInEx/BepInEx/releases).
-2. Open the [latest TextFX Unknown release](../../releases) and download `TextFX-Unknown-v0.7.0-pre.1.zip`.
+2. Open the [latest TextFX Unknown release](../../releases) and download `TextFX-Unknown-v0.7.1-pre.1.zip`.
 3. From the ZIP, extract **`BepInEx/plugins/TextFXUnknown.dll`** into the corresponding folder inside your game directory.
-4. Launch the game and look for `TextFX Unknown 0.7.0 loaded` in `BepInEx/LogOutput.log`.
+4. Launch the game and look for `TextFX Unknown 0.7.1 loaded` in `BepInEx/LogOutput.log`.
 
 The ZIP also contains editable **source code**, but you don't need it just to play. It intentionally **does not contain a README**, BepInEx itself, game files, or Unity reference DLLs.
 

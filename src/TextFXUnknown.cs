@@ -10,7 +10,7 @@ using UnityEngine;
 
 namespace HGSoft.TextFXUnknown
 {
-    [BepInPlugin("com.hgsoft.textfxunknown", "TextFX Unknown", "0.7.0")]
+    [BepInPlugin("com.hgsoft.textfxunknown", "TextFX Unknown", "0.7.1")]
     public sealed partial class TextFXUnknownPlugin : BaseUnityPlugin
     {
         private Harmony harmony;
@@ -24,6 +24,7 @@ namespace HGSoft.TextFXUnknown
         private PropertyInfo textInfoProperty;
         private float nextScan;
         private bool warned;
+        private bool effectsSuspended;
         // Motion is always measured in glyph-local units, NEVER Unity world units.
         // Even if a preset is excessively strong, a glyph cannot fly across the screen.
         private BepInEx.Configuration.ConfigEntry<float> effectStrength;
@@ -75,7 +76,7 @@ namespace HGSoft.TextFXUnknown
             }
             InitializeDialogueHooks();
             InitializeCuratedProfiles();
-            Logger.LogInfo("TextFX Unknown 0.7.0 loaded. Patched TMP text methods: " + patched.Count + "; AutoDialogue=" + autoDialogue.Value);
+            Logger.LogInfo("TextFX Unknown 0.7.1 loaded. Patched TMP text methods: " + patched.Count + "; AutoDialogue=" + autoDialogue.Value);
         }
 
         private static MethodInfo FindMethod(Type type, string name, int count, Type firstType = null)
@@ -143,6 +144,29 @@ namespace HGSoft.TextFXUnknown
             // Some game code changes TMP text without using its single-string setter.
             // The slow scan is restricted to active scene objects with effect tags.
             if (tmpType == null) return;
+            if (LegacyKeyDown(KeyCode.F7))
+            {
+                effectsSuspended = !effectsSuspended;
+                Logger.LogWarning("[TextFX] F7 emergency FX toggle: " +
+                    (effectsSuspended ? "SUSPENDED" : "RESTORED"));
+                // Ensure previously transformed meshes are drawn unmodified.
+                foreach (var animation in animations.Values)
+                {
+                    var target = animation.Component;
+                    if (target == null) continue;
+                    try
+                    {
+                        var parameters = forceMeshUpdate.GetParameters();
+                        var resetArgs = new object[parameters.Length];
+                        for (int i = 0; i < resetArgs.Length; i++) resetArgs[i] = false;
+                        if (resetArgs.Length > 0) resetArgs[0] = true;
+                        if (resetArgs.Length > 1) resetArgs[1] = true;
+                        forceMeshUpdate.Invoke(target, resetArgs);
+                    }
+                    catch { }
+                }
+            }
+            if (effectsSuspended) return;
             if (LegacyKeyDown(KeyCode.F8)) StartDiagnostic();
             // Tagged content may arrive through paths other than set_text / SetText.
             // Keep this relatively slow; automatic dialogue candidates are polled
@@ -167,7 +191,7 @@ namespace HGSoft.TextFXUnknown
 
         private void LateUpdate()
         {
-            if (tmpType == null) return;
+            if (tmpType == null || effectsSuspended) return;
             // Poll after the game's normal Update so its typewriter can reveal a
             // new glyph and get FX in this very frame, not after the whole line.
             ScanAutomaticDialogue();
@@ -260,6 +284,9 @@ namespace HGSoft.TextFXUnknown
             var parameters = forceMeshUpdate.GetParameters();
             var args = new object[parameters.Length];
             for (int i = 0; i < args.Length; i++) args[i] = false;
+            // Force TMP to refresh its original text layout rather than reusing
+            // transformed vertex buffers from a previous frame.
+            if (args.Length > 0) args[0] = true;
             forceMeshUpdate.Invoke(component, args);
             info = textInfoProperty.GetValue(component, null);
             if (info == null) return;
@@ -269,6 +296,22 @@ namespace HGSoft.TextFXUnknown
             // textInfo before its layout pass. Assign each a birth time NOW.
             while (entry.BirthTimes.Count < count) entry.BirthTimes.Add(now);
             var meshes = (Array)Field(info, "meshInfo");
+            // Color buffers can also accumulate blend changes frame-to-frame.
+            // Cache their unmodified state once per dialogue text/layout.
+            if (!string.Equals(entry.BaselineText, entry.Parsed.Text, StringComparison.Ordinal))
+            {
+                entry.BaselineText = entry.Parsed.Text;
+                entry.BaselineColors.Clear();
+            }
+            for (int materialIndex = 0; materialIndex < meshes.Length; materialIndex++)
+            {
+                var materialInfo = meshes.GetValue(materialIndex);
+                var materialColors = (Color32[])Field(materialInfo, "colors32");
+                Color32[] originalColors;
+                if (!entry.BaselineColors.TryGetValue(materialIndex, out originalColors) ||
+                    originalColors.Length != materialColors.Length)
+                    entry.BaselineColors[materialIndex] = (Color32[])materialColors.Clone();
+            }
             cursor = 0f;
             var used = new HashSet<int>();
             for (int i = 0; i < count; i++)
@@ -293,10 +336,18 @@ namespace HGSoft.TextFXUnknown
                 var colors = (Color32[])Field(mesh, "colors32");
                 if (v < 0 || v + 3 >= vertices.Length || v + 3 >= colors.Length) continue;
                 float age = entry.BirthTimes[i] >= 0f ? now - entry.BirthTimes[i] : 0f;
-                // The four vertices form a TMP glyph quad. Use its LOCAL dimensions,
-                // never a hard-coded distance like 2.4 or 5 Unity units.
-                float glyphHeight = Mathf.Abs(vertices[v + 2].y - vertices[v].y);
-                if (glyphHeight < 0.000001f) continue;
+                // CRITICAL FIX: TMP_CharacterInfo holds the unmodified original
+                // corner positions, unlike meshInfo.vertices, which already contains
+                // our LAST FRAME's transformations. Reconstruct from the former.
+                // Otherwise even a 1.03 scale is multiplied every frame until huge.
+                var originalQuad = new Vector3[4];
+                originalQuad[0] = (Vector3)Field(charInfo, "bottomLeft");
+                originalQuad[1] = (Vector3)Field(charInfo, "topLeft");
+                originalQuad[2] = (Vector3)Field(charInfo, "topRight");
+                originalQuad[3] = (Vector3)Field(charInfo, "bottomRight");
+                float glyphHeight = Mathf.Abs(originalQuad[2].y - originalQuad[0].y);
+                if (glyphHeight < 0.000001f || float.IsInfinity(glyphHeight) ||
+                    float.IsNaN(glyphHeight)) continue;
                 bool diagnostic = entry.StyleId == "diagnostic";
                 // Diagnostic FX are deliberately noticeable, independent of a
                 // player's older, low-intensity config values.
@@ -341,23 +392,31 @@ namespace HGSoft.TextFXUnknown
                       Mathf.Sin(Mathf.Max(0f, age) * 17f) * .11f * strength
                     : 0f;
                 float scale = 1f + Mathf.Clamp(bounce, -.11f, .11f);
-                float sx = Mathf.Clamp(scale * extras.ScaleX, .70f, 1.30f);
-                float sy = Mathf.Clamp(scale * extras.ScaleY, .70f, 1.30f);
+                // Limit the final animated glyph to 85-115% of its ORIGINAL
+                // size. This is not a per-frame multiplier.
+                float sx = Mathf.Clamp(scale * extras.ScaleX, .85f, 1.15f);
+                float sy = Mathf.Clamp(scale * extras.ScaleY, .85f, 1.15f);
                 float radians = Mathf.Clamp(extras.Angle, -18f, 18f) * Mathf.Deg2Rad;
                 float cos = Mathf.Cos(radians), sin = Mathf.Sin(radians);
                 alpha *= extras.Alpha;
-                var center = (vertices[v] + vertices[v + 2]) * .5f;
+                var center = (originalQuad[0] + originalQuad[2]) * .5f;
                 float blend = diagnostic ? .98f : (entry.Automatic ? .44f : .55f) * strength;
+                var originalColors = entry.BaselineColors[m];
                 for (int j = 0; j < 4; j++)
                 {
-                    var local = vertices[v + j] - center;
+                    var local = originalQuad[j] - center;
                     local.x *= sx;
                     local.y *= sy;
-                    vertices[v + j] = center +
+                    var transformed = center +
                         new Vector3(local.x * cos - local.y * sin,
                             local.x * sin + local.y * cos, local.z) +
                         new Vector3(displacement.x, displacement.y, 0f);
-                    Color32 c = colors[v + j];
+                    // Additional independent safety guard, even when multiple
+                    // effects stack rotation, scaling, and movement.
+                    Vector3 delta = transformed - originalQuad[j];
+                    vertices[v + j] = originalQuad[j] +
+                        Vector3.ClampMagnitude(delta, glyphHeight * .45f);
+                    Color32 c = originalColors[v + j];
                     c.a = (byte)Mathf.Clamp(Mathf.RoundToInt(c.a * alpha), 0, 255);
                     if (fx.TintOn)
                     {
@@ -410,6 +469,9 @@ namespace HGSoft.TextFXUnknown
             internal FxParsed Parsed;
             internal readonly float Started;
             internal readonly List<float> BirthTimes = new List<float>();
+            internal readonly Dictionary<int, Color32[]> BaselineColors =
+                new Dictionary<int, Color32[]>();
+            internal string BaselineText;
             internal string StyleId;
             internal int LastVisible = -1;
             internal bool Automatic;
