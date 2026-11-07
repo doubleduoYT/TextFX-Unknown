@@ -99,7 +99,8 @@ namespace HGSoft.TextFXUnknown
 
         private static bool NameLooksLikeDialogue(Component component)
         {
-            for (var node = component.transform, depth = 0; depth < 6 && node != null; node = node.parent, depth++)
+            int depth = 0;
+            for (var node = component.transform; depth < 6 && node != null; node = node.parent, depth++)
             {
                 var name = node.name.ToLowerInvariant();
                 if (name.Contains("talk") || name.Contains("dialog") || name.Contains("speech") ||
