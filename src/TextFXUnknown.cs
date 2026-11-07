@@ -94,12 +94,32 @@ namespace HGSoft.TextFXUnknown
             }
         }
 
+
+        // Unity 2022 moved UnityEngine.Input into InputLegacyModule. Reflect it so the
+        // plugin can build against CoreModule without bundling any Unity game DLLs.
+        private static MethodInfo legacyGetKeyDown;
+        private static bool legacyInputResolved;
+        private static bool LegacyKeyDown(KeyCode key)
+        {
+            if (!legacyInputResolved)
+            {
+                legacyInputResolved = true;
+                var input = Type.GetType("UnityEngine.Input, UnityEngine.InputLegacyModule", false);
+                if (input != null)
+                    legacyGetKeyDown = input.GetMethod("GetKeyDown", BindingFlags.Public | BindingFlags.Static,
+                        null, new[] { typeof(KeyCode) }, null);
+            }
+            if (legacyGetKeyDown == null) return false;
+            try { return (bool)legacyGetKeyDown.Invoke(null, new object[] { key }); }
+            catch { return false; }
+        }
+
         private void Update()
         {
             // Some game code changes TMP text without using its single-string setter.
             // The slow scan is restricted to active scene objects with effect tags.
             if (tmpType == null) return;
-            if (Input.GetKeyDown(KeyCode.F8)) StartDiagnostic();
+            if (LegacyKeyDown(KeyCode.F8)) StartDiagnostic();
             if (Time.unscaledTime < nextScan) return;
             nextScan = Time.unscaledTime + 0.5f;
             foreach (var candidate in Resources.FindObjectsOfTypeAll(tmpType))
