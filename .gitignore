@@ -1,0 +1,9 @@
+refs/
+**/bin/
+**/obj/
+/dist/
+/.vs/
+*.user
+*.dll
+*.pdb
+*.zip

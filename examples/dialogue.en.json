@@ -1,0 +1,6 @@
+{
+  "warning": "<speed=0.08><shake=0.8><color=#FF6666>Watch out!</color></shake></speed>",
+  "wonder": "<fadein=0.4><wave=0.7>What is this place...?</wave></fadein>",
+  "friendly": "<rainbow><ease>Hello, friend!</ease></rainbow>",
+  "pause": "<speed=0.065>Wait...<pause=0.5/>what was that?</speed>"
+}

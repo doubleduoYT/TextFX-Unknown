@@ -1,0 +1,6 @@
+{
+  "warning": "<speed=0.08><shake=0.8><color=#FF6666>조심해!</color></shake></speed>",
+  "wonder": "<fadein=0.4><wave=0.7>여긴 어디지...?</wave></fadein>",
+  "friendly": "<rainbow><ease>안녕, 친구!</ease></rainbow>",
+  "pause": "<speed=0.065>잠깐...<pause=0.5/>저건 뭐지?</speed>"
+}

@@ -1,0 +1,39 @@
+name: Build and publish preview
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Download compile-only BepInEx and Unity references
+        run: python3 scripts/download_references.py
+      - name: Compile actual mod DLL
+        run: dotnet build src/TextFXUnknown.csproj -c Release --nologo
+      - name: Package DLL and source only (exclude README)
+        run: python3 scripts/package.py
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TextFX-Unknown-v0.3.0-pre.1
+          path: dist/TextFX-Unknown-v0.3.0-pre.1.zip
+      - name: Publish prerelease
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v0.3.0-pre.1
+          target_commitish: ${{ github.sha }}
+          name: TextFX Unknown v0.3.0 Preview 1
+          body_path: RELEASE_NOTES.md
+          prerelease: true
+          files: dist/TextFX-Unknown-v0.3.0-pre.1.zip
+          fail_on_unmatched_files: true
