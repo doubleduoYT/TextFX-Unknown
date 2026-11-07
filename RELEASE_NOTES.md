@@ -1,22 +1,25 @@
-# TextFX Unknown v0.6.0 Preview 1
+# TextFX Unknown v0.7.0 — 50 Effects Preview 1
 
-This release introduces **hand-curated text effects using real C:U dialogue** instead of broadly attaching Wave to every line.
+The user-supplied catalog of **50 text effects** is now represented by parser tags and an extended per-glyph TextMeshPro animation layer across five families.
 
-## Dialogue curation
-- Reviewed the supplied demo's official English language file and aligned Korean JSON, which have the same character/event/index structure.
-- **177 situation groups** spanning **1,895 character speech lines**: Experiment 1,604; Milky 146; Dune 145.
-- **194 individual line-specific overrides** for exceptions, plus **61 manually authored animation presets**.
-- Dialogue groups include new area, food, pain, panic, wounds, fatigue, grief, recovery, friendly traders, hostile traders and Dune's unusual speaking patterns.
-- Multiple types of movement — fade, entrance bounce, tremor, short impact, tinted color, occasional wave and glitch — instead of defaulting every line to a wave.
+### New effects
+- **Movement (12):** Bounce, Sway, Rotate, Pendulum, Tremble, Heartbeat, Breathe, Drop, Float, Slide, Twist, Elastic.
+- **Reveal/exit (10):** Fade In, Fade Out, Zoom In, Zoom Out, Spring, Typewriter, Stagger, Blur Reveal*, Spin In, Assemble.
+- **Color/visual (10):** Rainbow, Color Pulse, Gradient, Sparkle, Neon Glow*, Flicker, Hologram, Afterimage*, Chromatic Aberration*, Glitch.
+- **Emotion (10):** Fear, Rage, Surprise, Happy, Sadness, Confusion, Whisper, Scream, Exhausted, Insanity.
+- **Advanced (8):** Accelerate, Decelerate, Word Emphasis, Punctuation Pause, Screen Shake*, Shockwave, Ripple, Corruption*.
 
-## Implementation
-- Runtime matches actual spoken sentences against the game's installed official/translated `character[event][index]` text, with curated styles taking priority over the existing heuristics.
-- Reads locale JSON using the game's own Newtonsoft.Json; **no original game lines, game files or third-party DLLs are distributed** in the repository/release.
-- Searches the game's Lang and BepInEx folders and persistent-data location for compatible locales. For Korean, you can put your own `ko-KR.json` under `BepInEx/config/TextFXUnknown/` when needed.
-- Original typewriter timing, safe glyph-height displacement limits, F8 diagnostic, and `[Visuals]` configuration remain available.
-- Automatic fallback remains for unrecognized/new/modded lines.
+Items marked * are **visual approximations, not their full cinematic equivalent**. Blur uses alpha/scale instead of a blur pass; Neon is color emphasis without a glow outline; Afterimage uses tint oscillation without cloning glyph meshes; Chromatic uses RGB tint oscillation without actual RGB channel offsets; Screen Shake moves text glyphs but not the whole dialogue window; Corruption does not replace actual characters.
 
-## Install
-Replace `BepInEx/plugins/TextFXUnknown.dll` with this compiled release. Verify `TextFX Unknown 0.6.0 loaded` and `[TextFX] Curated dialogue:` in the BepInEx log, then look for `curated=True` as characters speak.
+### Changes to real C:U dialogue
+- Reassigned **all 61** human-curated context presets used across **177 event groups and 194 phrase exceptions**.
+- Previously wave-heavy dialogue now uses distinct animations: exhaustion/breathing, hope/float, pain/tremble, trading/slide, surprise/spring, warning/shockwave, Dune's calm/cautious rotation and more.
+- Existing per-phrase locale matching takes precedence, then normal fallback for unidentified character speech.
+- Supports composition such as `<colorpulse=#FF0000,#00FFFF>`, `<bounce=0.6>`, `<spring=0.8>` in custom text.
+- Auto dialogue preserves C:U's own typewriter. Advanced timing controls activate when tagged explicitly.
 
-**Note:** CI tests compile/build packaging and metadata integrity, not an actual gameplay session. This is an unofficial, experimental Windows Unity Mono/BepInEx 5 fan mod for C:U 7.0 Demo.
+### Safety, installation, verification
+- Every glyph's translation is clamped to the configured local travel limit (maximum 30% of its own height); rotation ±18° and scale 70–130%.
+- Windows Mono, BepInEx 5, C:U 7.0 demo; full release, Android, and IL2CPP are not validated.
+- Replace `BepInEx/plugins/TextFXUnknown.dll`. Confirm `TextFX Unknown 0.7.0 loaded` in BepInEx log. The ZIP contains the built DLL and editable source/tests **without README or game assets**.
+- CI verifies catalog count, curated mapping metadata, and successful compilation; **visual behavior in the running game still requires testing**.

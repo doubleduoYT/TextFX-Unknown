@@ -10,7 +10,7 @@ using UnityEngine;
 
 namespace HGSoft.TextFXUnknown
 {
-    [BepInPlugin("com.hgsoft.textfxunknown", "TextFX Unknown", "0.6.0")]
+    [BepInPlugin("com.hgsoft.textfxunknown", "TextFX Unknown", "0.7.0")]
     public sealed partial class TextFXUnknownPlugin : BaseUnityPlugin
     {
         private Harmony harmony;
@@ -75,7 +75,7 @@ namespace HGSoft.TextFXUnknown
             }
             InitializeDialogueHooks();
             InitializeCuratedProfiles();
-            Logger.LogInfo("TextFX Unknown 0.6.0 loaded. Patched TMP text methods: " + patched.Count + "; AutoDialogue=" + autoDialogue.Value);
+            Logger.LogInfo("TextFX Unknown 0.7.0 loaded. Patched TMP text methods: " + patched.Count + "; AutoDialogue=" + autoDialogue.Value);
         }
 
         private static MethodInfo FindMethod(Type type, string name, int count, Type firstType = null)
@@ -225,7 +225,14 @@ namespace HGSoft.TextFXUnknown
                 var charInfo = chars.GetValue(i);
                 int position = (int)Field(charInfo, "index");
                 FxState fx = entry.Parsed.At(position);
-                cursor += fx.Pause + fx.Speed;
+                cursor += fx.Pause + FxRevealStep(fx, i, count);
+                if (fx.Get("punctuationpause") > 0 && i > 0)
+                {
+                    int priorIndex = (int)Field(chars.GetValue(i - 1), "index");
+                    if (priorIndex >= 0 && priorIndex < entry.Parsed.Text.Length &&
+                        IsPunctuation(entry.Parsed.Text[priorIndex]))
+                        cursor += fx.Get("punctuationpause") * .20f;
+                }
                 if (elapsed >= cursor) reveal++;
             }
             if (entry.Parsed.HasTiming && !entry.Automatic && entry.LastVisible != reveal)
@@ -269,7 +276,14 @@ namespace HGSoft.TextFXUnknown
                 var charInfo = chars.GetValue(i);
                 int index = (int)Field(charInfo, "index");
                 var fx = entry.Parsed.At(index);
-                cursor += fx.Pause + fx.Speed;
+                cursor += fx.Pause + FxRevealStep(fx, i, count);
+                if (fx.Get("punctuationpause") > 0 && i > 0)
+                {
+                    int priorIndex = (int)Field(chars.GetValue(i - 1), "index");
+                    if (priorIndex >= 0 && priorIndex < entry.Parsed.Text.Length &&
+                        IsPunctuation(entry.Parsed.Text[priorIndex]))
+                        cursor += fx.Get("punctuationpause") * .20f;
+                }
                 if (i >= reveal || !(bool)Field(charInfo, "isVisible") || !fx.HasMotion) continue;
                 int m = (int)Field(charInfo, "materialReferenceIndex");
                 int v = (int)Field(charInfo, "vertexIndex");
@@ -308,6 +322,10 @@ namespace HGSoft.TextFXUnknown
                 }
                 Vector2 displacement = new Vector2(dxRatio, dyRatio) *
                     (glyphHeight * strength * envelope);
+                // Additional user-selected glyph effects run inside the same safety
+                // envelope. They cannot bypass the per-character travel limit.
+                var extras = EvaluateExtendedEffects(fx, i, count, now, age);
+                displacement += extras.Offset * (glyphHeight * strength);
                 // Hard cap prevents the off-screen scattered characters seen in 0.4.0.
                 // F8 is stronger, but still safely confined to 27% of glyph height.
                 float travelLimit = diagnostic ? .27f :
@@ -323,11 +341,21 @@ namespace HGSoft.TextFXUnknown
                       Mathf.Sin(Mathf.Max(0f, age) * 17f) * .11f * strength
                     : 0f;
                 float scale = 1f + Mathf.Clamp(bounce, -.11f, .11f);
+                float sx = Mathf.Clamp(scale * extras.ScaleX, .70f, 1.30f);
+                float sy = Mathf.Clamp(scale * extras.ScaleY, .70f, 1.30f);
+                float radians = Mathf.Clamp(extras.Angle, -18f, 18f) * Mathf.Deg2Rad;
+                float cos = Mathf.Cos(radians), sin = Mathf.Sin(radians);
+                alpha *= extras.Alpha;
                 var center = (vertices[v] + vertices[v + 2]) * .5f;
                 float blend = diagnostic ? .98f : (entry.Automatic ? .44f : .55f) * strength;
                 for (int j = 0; j < 4; j++)
                 {
-                    vertices[v + j] = center + (vertices[v + j] - center) * scale +
+                    var local = vertices[v + j] - center;
+                    local.x *= sx;
+                    local.y *= sy;
+                    vertices[v + j] = center +
+                        new Vector3(local.x * cos - local.y * sin,
+                            local.x * sin + local.y * cos, local.z) +
                         new Vector3(displacement.x, displacement.y, 0f);
                     Color32 c = colors[v + j];
                     c.a = (byte)Mathf.Clamp(Mathf.RoundToInt(c.a * alpha), 0, 255);
@@ -341,6 +369,13 @@ namespace HGSoft.TextFXUnknown
                     {
                         c.r = (byte)Mathf.Min(255f, c.r + 10f * fx.Glitch * strength);
                         c.b = (byte)Mathf.Min(255f, c.b + 15f * fx.Glitch * strength);
+                    }
+                    if (extras.ColorBlend > 0f)
+                    {
+                        float t = Mathf.Clamp01(extras.ColorBlend * strength);
+                        c.r = (byte)Mathf.Lerp(c.r, extras.R, t);
+                        c.g = (byte)Mathf.Lerp(c.g, extras.G, t);
+                        c.b = (byte)Mathf.Lerp(c.b, extras.B, t);
                     }
                     if (fx.Rainbow)
                     {
@@ -389,8 +424,18 @@ namespace HGSoft.TextFXUnknown
         public bool TintOn;
         public byte TintR, TintG, TintB;
         public bool Ease, Rainbow;
-        public bool HasMotion { get { return Shake != 0 || Wave != 0 || Impact != 0 || Glitch != 0 || TintOn || FadeIn != 0 || FadeOut != 0 || Alpha < 1f || Ease || Rainbow; } }
-        public FxState Copy() { return (FxState)MemberwiseClone(); }
+        public Dictionary<string, float> Extra = new Dictionary<string, float>(StringComparer.Ordinal);
+        public Dictionary<string, string> ExtraArgs = new Dictionary<string, string>(StringComparer.Ordinal);
+        public float Get(string key) { float v; return Extra.TryGetValue(key, out v) ? v : 0f; }
+        public string Arg(string key) { string v; return ExtraArgs.TryGetValue(key, out v) ? v : ""; }
+        public bool HasMotion { get { return Shake != 0 || Wave != 0 || Impact != 0 || Glitch != 0 || TintOn || FadeIn != 0 || FadeOut != 0 || Alpha < 1f || Ease || Rainbow || Extra.Count > 0; } }
+        public FxState Copy()
+        {
+            var copy = (FxState)MemberwiseClone();
+            copy.Extra = new Dictionary<string, float>(Extra, StringComparer.Ordinal);
+            copy.ExtraArgs = new Dictionary<string, string>(ExtraArgs, StringComparer.Ordinal);
+            return copy;
+        }
     }
     internal sealed class FxParsed
     {
@@ -402,21 +447,13 @@ namespace HGSoft.TextFXUnknown
     }
     internal static class FxParser
     {
-        private static readonly Regex Tag = new Regex(@"^(/?)(shake|wave|fadein|fadeout|speed|impact|ease|pause|alpha|rainbow|glitch|tint)(?:=([^>]+))?/?$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        private const string FxNames = "shake|wave|fadein|fadeout|speed|impact|ease|pause|alpha|rainbow|glitch|tint|bounce|sway|rotate|pendulum|tremble|heartbeat|breathe|drop|float|slide|twist|elastic|zoomin|zoomout|spring|typewriter|stagger|blurreveal|spinin|assemble|colorpulse|gradient|sparkle|neon|flicker|hologram|afterimage|chromatic|fear|rage|surprise|happy|sadness|confusion|whisper|scream|exhausted|insanity|accelerate|decelerate|wordemphasis|punctuationpause|screenshake|shockwave|ripple|corruption";
+        private static readonly Regex Tag = new Regex(@"^(/?)(" + FxNames + @")(?:=([^>]+))?/?$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        private static readonly Regex FxOpening = new Regex(@"<(?:/)?(?:" + FxNames + @")(?=[=>/])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
         internal static bool MightContainEffects(string text)
         {
-            if (string.IsNullOrEmpty(text)) return false;
-            return text.IndexOf("<shake", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                   text.IndexOf("<wave", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                   text.IndexOf("<fade", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                   text.IndexOf("<speed", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                   text.IndexOf("<impact", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                   text.IndexOf("<ease", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                   text.IndexOf("<pause", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                   text.IndexOf("<alpha", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                   text.IndexOf("<rainbow", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                   text.IndexOf("<glitch", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                   text.IndexOf("<tint", StringComparison.OrdinalIgnoreCase) >= 0;
+            return !string.IsNullOrEmpty(text) && text.IndexOf('<') >= 0 &&
+                   FxOpening.IsMatch(text);
         }
         private static float Number(string text, float fallback)
         {
@@ -478,6 +515,24 @@ namespace HGSoft.TextFXUnknown
                                     case "ease": current.Ease = true; break;
                                     case "alpha": current.Alpha = Mathf.Clamp01(Number(arg, .6f)); break;
                                     case "rainbow": current.Rainbow = true; break;
+                                    case "typewriter":
+                                        current.Speed = Number(arg, .07f); result.HasTiming = true;
+                                        current.Extra["typewriter"] = 1f; break;
+                                    case "accelerate":
+                                    case "decelerate":
+                                    case "punctuationpause":
+                                        current.Speed = current.Speed > 0 ? current.Speed : .065f;
+                                        result.HasTiming = true;
+                                        current.Extra[kind] = Number(arg, .65f); break;
+                                    case "stagger":
+                                        current.Extra[kind] = Number(arg, .7f);
+                                        break;
+                                    case "colorpulse":
+                                    case "gradient":
+                                        current.Extra[kind] = 1f;
+                                        current.ExtraArgs[kind] = arg; break;
+                                    default:
+                                        current.Extra[kind] = Number(arg, 1f); break;
                                 }
                             }
                             position = end + 1;

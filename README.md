@@ -15,7 +15,40 @@ TextFX Unknown is an **unofficial, experimental BepInEx 5 mod** that gives dialo
 - **TextMeshPro formatting:** preserve built-in tags like `<color>`, `<b>`, `<i>`, `<size>`, and `<sprite>`.
 - **Korean and English:** the effects work with both, as long as the game actually passes the tagged text to a TMP text component.
 
-## Hand-curated per-dialogue effects — v0.6.0
+## The 50-effect catalog (v0.7.0)
+
+TextFX Unknown now recognizes **50 effect tags in five families**. Each can be mixed with other tags, and the supplied C:U dialogue event styles use a hand-selected subset of them. Examples:
+
+```xml
+<bounce=0.7><fadein=0.2>Hello there!</fadein></bounce>
+<rotate=0.4><heartbeat=0.6>Is this normal...?</heartbeat></rotate>
+<slide=0.8><gradient=#FFDD99,#93C5FD>Trading complete!</gradient></slide>
+<colorpulse=#FF80AA,#00FFFF><sparkle=0.6>Wonderful!</sparkle></colorpulse>
+<wordemphasis=0.8>Don't go in there!</wordemphasis>
+<accelerate=0.8>Faster and faster...</accelerate>
+<punctuationpause=0.6>Wait... Something's coming!</punctuationpause>
+```
+
+### Movement (12)
+`bounce` (up/down pop), `sway` (side-to-side), `rotate` (small rotation), `pendulum` (oscillating rotation), `tremble` (fast jitter), `heartbeat` (double-beat scale), `breathe` (slow scale pulse), `drop` (fall from above), `float` (rise from below), `slide` (side entrance), `twist` (rotation and position), `elastic` (stretch/rebound).
+
+### Reveal and exit (10)
+`fadein`, `fadeout`, `zoomin`, `zoomout`, `spring`, `typewriter` (explicit per-glyph timing), `stagger` (brief per-letter opacity delay), `blurreveal` (soft-focus *approximation*: alpha/scale, **not a real blur shader**), `spinin`, `assemble` (letters converge from nearby positions).
+
+### Color and visual (10)
+`rainbow`, `colorpulse` (two-color oscillation; accepts `#RRGGBB,#RRGGBB`), `gradient` (left-to-right color blend; accepts two colors), `sparkle` (occasional bright letters), `neon` (*bright vertex color approximation*, not real bloom/outline), `flicker`, `hologram` (cyan tint/jitter), `afterimage` (*tinted trail approximation*, not duplicate glyphs), `chromatic` (*red/blue tint alternation*, not separate RGB channel geometry), `glitch`.
+
+### Emotion and impact (10)
+`fear`, `rage`, `surprise`, `happy`, `sadness`, `confusion`, `whisper`, `scream`, `exhausted`, `insanity`.
+
+### Special and advanced (8)
+`accelerate` and `decelerate` modify **explicit tagged** typewriter timing. `wordemphasis` subtly enlarges its tagged span; `punctuationpause` pauses after a punctuation mark, **only with explicit timing tags**. `screenshake` shifts the letters together (**not the whole game window/UI**); `shockwave` staggers a local motion pulse; `ripple` sends a moving vertical offset through the string; `corruption` adds unstable tint/jitter (**does not replace characters with other symbols**).
+
+**Important rendering limits:** Actual blur, luminous outlines, duplicate afterimages, true RGB split, full-canvas shaking, and animated character substitution are separate shader/mesh/text-rendering features and are **not implemented** by this build. The affected tags provide the stated approximations only. The other animations use real per-glyph TextMeshPro vertex transformations.
+
+The maximum per-glyph travel remains bounded by `MaxGlyphTravel` (up to 30% of each glyph's height). Rotation is capped at ±18°, scaling at 70–130%, and the game's native typewriter remains untouched for automatic dialogue. Changes in game locale text still use the manual curated mapping when matched.
+
+## Hand-curated per-dialogue effects — v0.7.0
 
 **Not just keyword detection or a wave effect on every line.** The C:U 7.0 demo's actual English dialogue and the supplied matching Korean translation were reviewed by character and situation: **1,895 character lines, 177 event groups** (Experiment: 1,604, Milky: 146, Dune: 145). Each event was assigned a specifically selected animation, plus **194 individual line overrides** where one phrase has a different tone than the surrounding category. There are **61 authored effect presets**, including calm, fear, delight, nausea, curiosity, grief, fatigue, regret, warning, trading, comfort, anger and character-specific Dune delivery.
 
@@ -101,9 +134,9 @@ No external character or item assets are bundled. **Textures, images, portraits 
 ## Installing
 
 1. Install **BepInEx 5 (Mono, Windows x64)** in your copy of Casualties: Unknown. [BepInEx releases](https://github.com/BepInEx/BepInEx/releases).
-2. Open the [latest TextFX Unknown release](../../releases) and download `TextFX-Unknown-v0.6.0-pre.1.zip`.
+2. Open the [latest TextFX Unknown release](../../releases) and download `TextFX-Unknown-v0.7.0-pre.1.zip`.
 3. From the ZIP, extract **`BepInEx/plugins/TextFXUnknown.dll`** into the corresponding folder inside your game directory.
-4. Launch the game and look for `TextFX Unknown 0.6.0 loaded` in `BepInEx/LogOutput.log`.
+4. Launch the game and look for `TextFX Unknown 0.7.0 loaded` in `BepInEx/LogOutput.log`.
 
 The ZIP also contains editable **source code**, but you don't need it just to play. It intentionally **does not contain a README**, BepInEx itself, game files, or Unity reference DLLs.
 
