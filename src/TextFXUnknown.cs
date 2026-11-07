@@ -10,7 +10,7 @@ using UnityEngine;
 
 namespace HGSoft.TextFXUnknown
 {
-    [BepInPlugin("com.hgsoft.textfxunknown", "TextFX Unknown", "0.3.1")]
+    [BepInPlugin("com.hgsoft.textfxunknown", "TextFX Unknown", "0.4.0")]
     public sealed partial class TextFXUnknownPlugin : BaseUnityPlugin
     {
         private Harmony harmony;
@@ -51,7 +51,7 @@ namespace HGSoft.TextFXUnknown
                 if (setText != null && setText.DeclaringType == type) PatchOnce(setText, patched);
             }
             InitializeDialogueHooks();
-            Logger.LogInfo("TextFX Unknown 0.3.1 loaded. Patched TMP text methods: " + patched.Count + "; AutoDialogue=" + autoDialogue.Value);
+            Logger.LogInfo("TextFX Unknown 0.4.0 loaded. Patched TMP text methods: " + patched.Count + "; AutoDialogue=" + autoDialogue.Value);
         }
 
         private static MethodInfo FindMethod(Type type, string name, int count, Type firstType = null)
@@ -120,32 +120,42 @@ namespace HGSoft.TextFXUnknown
             // The slow scan is restricted to active scene objects with effect tags.
             if (tmpType == null) return;
             if (LegacyKeyDown(KeyCode.F8)) StartDiagnostic();
-            if (Time.unscaledTime < nextScan) return;
-            nextScan = Time.unscaledTime + 0.5f;
-            foreach (var candidate in Resources.FindObjectsOfTypeAll(tmpType))
+            // Tagged content may arrive through paths other than set_text / SetText.
+            // Keep this relatively slow; automatic dialogue candidates are polled
+            // separately every frame in LateUpdate.
+            if (Time.unscaledTime >= nextScan)
             {
-                var component = candidate as Component;
-                if (component == null || !component.gameObject.activeInHierarchy || !component.gameObject.scene.IsValid()) continue;
-                var raw = textProperty.GetValue(candidate, null) as string;
-                if (!FxParser.MightContainEffects(raw)) continue;
-                var parsed = FxParser.Parse(raw);
-                if (!parsed.HasEffects) continue;
-                Animate(component, parsed);
-                textProperty.SetValue(candidate, parsed.Text, null);
+                nextScan = Time.unscaledTime + 0.35f;
+                foreach (var candidate in Resources.FindObjectsOfTypeAll(tmpType))
+                {
+                    var component = candidate as Component;
+                    if (component == null || !component.gameObject.activeInHierarchy ||
+                        !component.gameObject.scene.IsValid()) continue;
+                    var raw = textProperty.GetValue(candidate, null) as string;
+                    if (!FxParser.MightContainEffects(raw)) continue;
+                    var parsed = FxParser.Parse(raw);
+                    if (!parsed.HasEffects) continue;
+                    Animate(component, parsed);
+                    textProperty.SetValue(candidate, parsed.Text, null);
+                }
             }
-            ScanAutomaticDialogue();
         }
 
         private void LateUpdate()
         {
-            if (tmpType == null || animations.Count == 0) return;
+            if (tmpType == null) return;
+            // Poll after the game's normal Update so its typewriter can reveal a
+            // new glyph and get FX in this very frame, not after the whole line.
+            ScanAutomaticDialogue();
+            if (animations.Count == 0) return;
             var expired = new List<int>();
             foreach (var pair in animations)
             {
                 var entry = pair.Value;
                 var component = entry.Component;
                 if (component == null || !component.gameObject.activeInHierarchy) { expired.Add(pair.Key); continue; }
-                if (entry.Automatic && Time.unscaledTime - entry.Started > 5f)
+                if (entry.Automatic && entry.StyleId == "diagnostic" &&
+                    Time.unscaledTime > testUntil)
                 {
                     expired.Add(pair.Key);
                     continue;
@@ -154,7 +164,10 @@ namespace HGSoft.TextFXUnknown
                 if (!string.Equals(visibleText, entry.Parsed.Text, StringComparison.Ordinal))
                 {
                     expired.Add(pair.Key);
-                    try { maxVisibleProperty.SetValue(component, int.MaxValue, null); } catch { }
+                    // Never overwrite the game's maxVisibleCharacters in auto mode.
+                    // The game owns its typewriter/reveal animation.
+                    if (!entry.Automatic && entry.Parsed.HasTiming)
+                        try { maxVisibleProperty.SetValue(component, int.MaxValue, null); } catch { }
                     continue;
                 }
                 try { Draw(entry); }
@@ -191,11 +204,28 @@ namespace HGSoft.TextFXUnknown
                 cursor += fx.Pause + fx.Speed;
                 if (elapsed >= cursor) reveal++;
             }
-            if (entry.Parsed.HasTiming && entry.LastVisible != reveal)
+            if (entry.Parsed.HasTiming && !entry.Automatic && entry.LastVisible != reveal)
             {
                 maxVisibleProperty.SetValue(component, reveal, null);
                 entry.LastVisible = reveal;
             }
+            else if (!entry.Parsed.HasTiming || entry.Automatic)
+            {
+                // C:U owns visibility. Read the actual TMP reveal value, rather
+                // than forcing all characters visible or starting after completion.
+                try
+                {
+                    var gameLimit = (int)maxVisibleProperty.GetValue(component, null);
+                    reveal = Math.Max(0, Math.Min(count, gameLimit));
+                }
+                catch { reveal = count; }
+            }
+
+            // A string can grow one glyph at a time, or the full string can exist
+            // while maxVisibleCharacters increments. Both paths get per-glyph birth times.
+            while (entry.BirthTimes.Count < count) entry.BirthTimes.Add(-1f);
+            for (int i = 0; i < reveal; i++)
+                if (entry.BirthTimes[i] < 0f) entry.BirthTimes[i] = now;
             var parameters = forceMeshUpdate.GetParameters();
             var args = new object[parameters.Length];
             for (int i = 0; i < args.Length; i++) args[i] = false;
@@ -221,12 +251,19 @@ namespace HGSoft.TextFXUnknown
                 var vertices = (Vector3[])Field(mesh, "vertices");
                 var colors = (Color32[])Field(mesh, "colors32");
                 if (v < 0 || v + 3 >= vertices.Length || v + 3 >= colors.Length) continue;
-                float age = elapsed - cursor;
+                float age = entry.BirthTimes[i] >= 0f ? now - entry.BirthTimes[i] : 0f;
                 float dx = Mathf.Sin(now * 43f + i * 13.6f) * fx.Shake * 2.4f;
                 float dy = Mathf.Cos(now * 37f + i * 7.3f) * fx.Shake * 2.4f + Mathf.Sin(now * 5.3f + i * 0.5f) * fx.Wave * 5f;
                 float kick = fx.Impact * Mathf.Exp(-Mathf.Max(0f, age) * 6f);
                 dx += Mathf.Sin(now * 88f + i) * kick * 4f;
                 dy += Mathf.Cos(now * 72f + i) * kick * 4f;
+                // Deterministic glitch-style glyph jitter, with short flickers.
+                float glitchPulse = Mathf.Sin(now * 27.3f + i * 17.91f);
+                if (fx.Glitch > 0f && glitchPulse > 0.74f)
+                {
+                    dx += Mathf.Sin(now * 81f + i * 4.8f) * fx.Glitch * 5f;
+                    dy -= fx.Glitch * 2.8f;
+                }
                 float alpha = fx.FadeIn > 0 ? Mathf.Clamp01(age / fx.FadeIn) : 1f;
                 if (fx.FadeOut > 0) alpha *= Mathf.Clamp01(1f - age / fx.FadeOut);
                 alpha *= fx.Alpha;
@@ -237,6 +274,17 @@ namespace HGSoft.TextFXUnknown
                     vertices[v + j] = center + (vertices[v + j] - center) * scale + new Vector3(dx, dy, 0f);
                     Color32 c = colors[v + j];
                     c.a = (byte)Mathf.Clamp(Mathf.RoundToInt(c.a * alpha), 0, 255);
+                    if (fx.TintOn)
+                    {
+                        c.r = (byte)Mathf.Clamp(c.r * 0.40f + fx.TintR * 0.60f, 0f, 255f);
+                        c.g = (byte)Mathf.Clamp(c.g * 0.40f + fx.TintG * 0.60f, 0f, 255f);
+                        c.b = (byte)Mathf.Clamp(c.b * 0.40f + fx.TintB * 0.60f, 0f, 255f);
+                    }
+                    if (fx.Glitch > 0f && glitchPulse > .84f)
+                    {
+                        c.r = (byte)Mathf.Min(255f, c.r + 35f * fx.Glitch);
+                        c.b = (byte)Mathf.Min(255f, c.b + 65f * fx.Glitch);
+                    }
                     if (fx.Rainbow)
                     {
                         Color rgb = Color.HSVToRGB(Mathf.Repeat(now * .25f + i * .07f, 1f), 1f, 1f);
@@ -266,8 +314,10 @@ namespace HGSoft.TextFXUnknown
         private sealed class TextAnimation
         {
             internal readonly Component Component;
-            internal readonly FxParsed Parsed;
+            internal FxParsed Parsed;
             internal readonly float Started;
+            internal readonly List<float> BirthTimes = new List<float>();
+            internal string StyleId;
             internal int LastVisible = -1;
             internal bool Automatic;
             internal TextAnimation(Component component, FxParsed parsed)
@@ -277,9 +327,11 @@ namespace HGSoft.TextFXUnknown
 
     internal sealed class FxState
     {
-        public float Shake, Wave, Impact, FadeIn, FadeOut, Speed, Pause, Alpha = 1f;
+        public float Shake, Wave, Impact, FadeIn, FadeOut, Speed, Pause, Glitch, Alpha = 1f;
+        public bool TintOn;
+        public byte TintR, TintG, TintB;
         public bool Ease, Rainbow;
-        public bool HasMotion { get { return Shake != 0 || Wave != 0 || Impact != 0 || FadeIn != 0 || FadeOut != 0 || Alpha < 1f || Ease || Rainbow; } }
+        public bool HasMotion { get { return Shake != 0 || Wave != 0 || Impact != 0 || Glitch != 0 || TintOn || FadeIn != 0 || FadeOut != 0 || Alpha < 1f || Ease || Rainbow; } }
         public FxState Copy() { return (FxState)MemberwiseClone(); }
     }
     internal sealed class FxParsed
@@ -292,7 +344,7 @@ namespace HGSoft.TextFXUnknown
     }
     internal static class FxParser
     {
-        private static readonly Regex Tag = new Regex(@"^(/?)(shake|wave|fadein|fadeout|speed|impact|ease|pause|alpha|rainbow)(?:=([^>]+))?/?$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        private static readonly Regex Tag = new Regex(@"^(/?)(shake|wave|fadein|fadeout|speed|impact|ease|pause|alpha|rainbow|glitch|tint)(?:=([^>]+))?/?$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
         internal static bool MightContainEffects(string text)
         {
             if (string.IsNullOrEmpty(text)) return false;
@@ -304,7 +356,9 @@ namespace HGSoft.TextFXUnknown
                    text.IndexOf("<ease", StringComparison.OrdinalIgnoreCase) >= 0 ||
                    text.IndexOf("<pause", StringComparison.OrdinalIgnoreCase) >= 0 ||
                    text.IndexOf("<alpha", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                   text.IndexOf("<rainbow", StringComparison.OrdinalIgnoreCase) >= 0;
+                   text.IndexOf("<rainbow", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   text.IndexOf("<glitch", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   text.IndexOf("<tint", StringComparison.OrdinalIgnoreCase) >= 0;
         }
         private static float Number(string text, float fallback)
         {
@@ -346,6 +400,19 @@ namespace HGSoft.TextFXUnknown
                                 {
                                     case "shake": current.Shake = Number(arg, .7f); break;
                                     case "wave": current.Wave = Number(arg, .5f); break;
+                                    case "glitch": current.Glitch = Number(arg, .6f); break;
+                                    case "tint":
+                                        int rgb;
+                                        if (arg.Length == 7 && arg[0] == '#' &&
+                                            int.TryParse(arg.Substring(1), NumberStyles.HexNumber,
+                                                CultureInfo.InvariantCulture, out rgb))
+                                        {
+                                            current.TintOn = true;
+                                            current.TintR = (byte)((rgb >> 16) & 255);
+                                            current.TintG = (byte)((rgb >> 8) & 255);
+                                            current.TintB = (byte)(rgb & 255);
+                                        }
+                                        break;
                                     case "impact": current.Impact = Number(arg, 1f); break;
                                     case "fadein": current.FadeIn = Number(arg, .5f); break;
                                     case "fadeout": current.FadeOut = Number(arg, .5f); break;
