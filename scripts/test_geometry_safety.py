@@ -1,27 +1,38 @@
 #!/usr/bin/env python3
-"""Guard against cumulative text mesh scaling (source invariants + deterministic model)."""
+"""Protect against runaway scaling and mismatched TMP character-metrics quads."""
 from pathlib import Path
-core=(Path(__file__).resolve().parents[1]/"src"/"TextFXUnknown.cs").read_text(encoding="utf-8")
-for corner in ("bottomLeft","topLeft","topRight","bottomRight"):
-    assert 'Field(charInfo, "'+corner+'")' in core, "missing TMP canonical corner: "+corner
-assert "originalQuad[j] - center" in core, "glyph transform not based on source"
-assert "originalQuad[j] +\n                        Vector3.ClampMagnitude(delta" in core, "missing absolute vertex clamp"
-assert "Mathf.Clamp(scale * extras.ScaleX, .85f, 1.15f)" in core
-assert "Mathf.Clamp(scale * extras.ScaleY, .85f, 1.15f)" in core
-assert "Vector3.ClampMagnitude(delta, glyphHeight * .45f)" in core
-assert "Color32 c = originalColors[v + j]" in core, "colors may accumulate over frames"
-assert "KeyCode.F7" in core and "effectsSuspended" in core, "F7 safety toggle absent"
-assert "var local = vertices[v + j] - center" not in core, "cumulative mesh input reintroduced"
-# Model a repeated scale using original corners across 10,000 simulated frames.
-# This alone is not a Unity runtime test: it checks the safety principle.
 import math
-quad=[(-.5,0),(-.5,1),(.5,1),(.5,0)]
-for frame in range(10000):
-    scale=1.15+0.02*math.sin(frame/11)
-    scale=max(.85,min(1.15,scale))
-    for x,y in quad:
-        nx=x*scale
-        ny=(y-.5)*scale+.5
-        displacement=math.hypot(nx-x,ny-y)
-        assert displacement <= .45+1e-7
-print("PASS: canonical TMP geometry, bounded glyph scale and offset, original colors, F7 rollback")
+core=(Path(__file__).resolve().parents[1]/"src"/"TextFXUnknown.cs").read_text(encoding="utf-8")
+assert "new Dictionary<int, Vector3[]>()" in core, "immutable mesh baseline cache missing"
+assert "entry.BaselineVertices[materialIndex] = (Vector3[])materialVertices.Clone()" in core, "original mesh not captured"
+assert "entry.BaselineVertices.Clear()" in core, "baseline must reset on line change"
+assert "Vector3[] baselineVertices = entry.BaselineVertices[m]" in core
+assert "originalQuad[corner] = baselineVertices[v + corner]" in core
+assert 'Field(charInfo, "bottomLeft")' not in core, "text metrics must not replace mesh quad"
+assert "args[1] = true" in core, "native TMP must be force-reparsed"
+assert "Mathf.Clamp(scale * extras.ScaleX, .92f, 1.08f)" in core
+assert "Mathf.Clamp(scale * extras.ScaleY, .92f, 1.08f)" in core
+assert "Mathf.Clamp(extras.Angle, -9f, 9f)" in core
+assert "Vector3.ClampMagnitude(delta, glyphHeight * .24f)" in core
+assert "Color32 c = originalColors[v + j]" in core
+assert "KeyCode.F7" in core and "effectsSuspended" in core
+assert "var local = vertices[v + j] - center" not in core
+# Simulation: each frame's transform must stay relative to the same immutable quad,
+# not scale the previous frame's positions.
+source=[(-.5,0),(-.5,1),(.5,1),(.5,0)]
+for k in range(10000):
+    alpha=k/35.
+    sx=min(1.08,max(.92,1+.15*math.sin(alpha)))
+    sy=min(1.08,max(.92,1+.15*math.cos(alpha)))
+    angle=math.radians(min(9,max(-9,18*math.sin(k/18.))))
+    c,s=math.cos(angle),math.sin(angle)
+    for x,y in source:
+        u=x*sx; v=(y-.5)*sy
+        nx=u*c-v*s
+        ny=u*s+v*c+.5
+        offset=math.hypot(nx-x,ny-y)
+        if offset > .24:
+            nx=x+(nx-x)*.24/offset
+            ny=y+(ny-y)*.24/offset
+        assert math.hypot(nx-x,ny-y) <= .24000001
+print("PASS: immutable source mesh, native reparse, final 8% scale/9deg/24% bounds, F7 safety")

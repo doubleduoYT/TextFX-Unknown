@@ -10,7 +10,7 @@ using UnityEngine;
 
 namespace HGSoft.TextFXUnknown
 {
-    [BepInPlugin("com.hgsoft.textfxunknown", "TextFX Unknown", "0.7.1")]
+    [BepInPlugin("com.hgsoft.textfxunknown", "TextFX Unknown", "0.7.2")]
     public sealed partial class TextFXUnknownPlugin : BaseUnityPlugin
     {
         private Harmony harmony;
@@ -76,7 +76,7 @@ namespace HGSoft.TextFXUnknown
             }
             InitializeDialogueHooks();
             InitializeCuratedProfiles();
-            Logger.LogInfo("TextFX Unknown 0.7.1 loaded. Patched TMP text methods: " + patched.Count + "; AutoDialogue=" + autoDialogue.Value);
+            Logger.LogInfo("TextFX Unknown 0.7.2 loaded. Patched TMP text methods: " + patched.Count + "; AutoDialogue=" + autoDialogue.Value);
         }
 
         private static MethodInfo FindMethod(Type type, string name, int count, Type firstType = null)
@@ -287,6 +287,7 @@ namespace HGSoft.TextFXUnknown
             // Force TMP to refresh its original text layout rather than reusing
             // transformed vertex buffers from a previous frame.
             if (args.Length > 0) args[0] = true;
+            if (args.Length > 1) args[1] = true; // force reparsing, not recycled TMP geometry
             forceMeshUpdate.Invoke(component, args);
             info = textInfoProperty.GetValue(component, null);
             if (info == null) return;
@@ -302,15 +303,26 @@ namespace HGSoft.TextFXUnknown
             {
                 entry.BaselineText = entry.Parsed.Text;
                 entry.BaselineColors.Clear();
+                entry.BaselineVertices.Clear();
             }
             for (int materialIndex = 0; materialIndex < meshes.Length; materialIndex++)
             {
                 var materialInfo = meshes.GetValue(materialIndex);
                 var materialColors = (Color32[])Field(materialInfo, "colors32");
+                var materialVertices = (Vector3[])Field(materialInfo, "vertices");
                 Color32[] originalColors;
+                Vector3[] originalVertices;
                 if (!entry.BaselineColors.TryGetValue(materialIndex, out originalColors) ||
-                    originalColors.Length != materialColors.Length)
+                    originalColors.Length != materialColors.Length ||
+                    !entry.BaselineVertices.TryGetValue(materialIndex, out originalVertices) ||
+                    originalVertices.Length != materialVertices.Length)
+                {
+                    // Snapshot the ACTUAL glyph mesh after TMP's full layout pass.
+                    // TMP_CharacterInfo corners are metrics, not necessarily the
+                    // same vertices/scale as this particular submesh material.
                     entry.BaselineColors[materialIndex] = (Color32[])materialColors.Clone();
+                    entry.BaselineVertices[materialIndex] = (Vector3[])materialVertices.Clone();
+                }
             }
             cursor = 0f;
             var used = new HashSet<int>();
@@ -336,18 +348,19 @@ namespace HGSoft.TextFXUnknown
                 var colors = (Color32[])Field(mesh, "colors32");
                 if (v < 0 || v + 3 >= vertices.Length || v + 3 >= colors.Length) continue;
                 float age = entry.BirthTimes[i] >= 0f ? now - entry.BirthTimes[i] : 0f;
-                // CRITICAL FIX: TMP_CharacterInfo holds the unmodified original
-                // corner positions, unlike meshInfo.vertices, which already contains
-                // our LAST FRAME's transformations. Reconstruct from the former.
-                // Otherwise even a 1.03 scale is multiplied every frame until huge.
+                // Use an IMMUTABLE snapshot of the original TMP mesh vertices
+                // for this exact submesh/text layout, never stale character
+                // metrics or the mesh already transformed by earlier frames.
+                Vector3[] baselineVertices = entry.BaselineVertices[m];
+                if (v + 3 >= baselineVertices.Length) continue;
                 var originalQuad = new Vector3[4];
-                originalQuad[0] = (Vector3)Field(charInfo, "bottomLeft");
-                originalQuad[1] = (Vector3)Field(charInfo, "topLeft");
-                originalQuad[2] = (Vector3)Field(charInfo, "topRight");
-                originalQuad[3] = (Vector3)Field(charInfo, "bottomRight");
+                for (int corner = 0; corner < 4; corner++)
+                    originalQuad[corner] = baselineVertices[v + corner];
                 float glyphHeight = Mathf.Abs(originalQuad[2].y - originalQuad[0].y);
-                if (glyphHeight < 0.000001f || float.IsInfinity(glyphHeight) ||
-                    float.IsNaN(glyphHeight)) continue;
+                float glyphWidth = Mathf.Abs(originalQuad[2].x - originalQuad[0].x);
+                if (glyphHeight < 0.000001f || glyphWidth < 0.000001f ||
+                    float.IsInfinity(glyphHeight) || float.IsNaN(glyphHeight) ||
+                    float.IsInfinity(glyphWidth) || float.IsNaN(glyphWidth)) continue;
                 bool diagnostic = entry.StyleId == "diagnostic";
                 // Diagnostic FX are deliberately noticeable, independent of a
                 // player's older, low-intensity config values.
@@ -392,11 +405,11 @@ namespace HGSoft.TextFXUnknown
                       Mathf.Sin(Mathf.Max(0f, age) * 17f) * .11f * strength
                     : 0f;
                 float scale = 1f + Mathf.Clamp(bounce, -.11f, .11f);
-                // Limit the final animated glyph to 85-115% of its ORIGINAL
-                // size. This is not a per-frame multiplier.
-                float sx = Mathf.Clamp(scale * extras.ScaleX, .85f, 1.15f);
-                float sy = Mathf.Clamp(scale * extras.ScaleY, .85f, 1.15f);
-                float radians = Mathf.Clamp(extras.Angle, -18f, 18f) * Mathf.Deg2Rad;
+                // Extra cautious after the giant-glyph bug. Never enlarge above
+                // 108% of the immutable *actual rendered mesh* quad.
+                float sx = Mathf.Clamp(scale * extras.ScaleX, .92f, 1.08f);
+                float sy = Mathf.Clamp(scale * extras.ScaleY, .92f, 1.08f);
+                float radians = Mathf.Clamp(extras.Angle, -9f, 9f) * Mathf.Deg2Rad;
                 float cos = Mathf.Cos(radians), sin = Mathf.Sin(radians);
                 alpha *= extras.Alpha;
                 var center = (originalQuad[0] + originalQuad[2]) * .5f;
@@ -411,11 +424,14 @@ namespace HGSoft.TextFXUnknown
                         new Vector3(local.x * cos - local.y * sin,
                             local.x * sin + local.y * cos, local.z) +
                         new Vector3(displacement.x, displacement.y, 0f);
-                    // Additional independent safety guard, even when multiple
-                    // effects stack rotation, scaling, and movement.
+                    // Protect against invalid numeric output and sudden geometry
+                    // spikes in characters rendered with unexpected font metrics.
                     Vector3 delta = transformed - originalQuad[j];
+                    if (float.IsNaN(delta.x) || float.IsNaN(delta.y) ||
+                        float.IsInfinity(delta.x) || float.IsInfinity(delta.y))
+                        delta = Vector3.zero;
                     vertices[v + j] = originalQuad[j] +
-                        Vector3.ClampMagnitude(delta, glyphHeight * .45f);
+                        Vector3.ClampMagnitude(delta, glyphHeight * .24f);
                     Color32 c = originalColors[v + j];
                     c.a = (byte)Mathf.Clamp(Mathf.RoundToInt(c.a * alpha), 0, 255);
                     if (fx.TintOn)
@@ -471,6 +487,8 @@ namespace HGSoft.TextFXUnknown
             internal readonly List<float> BirthTimes = new List<float>();
             internal readonly Dictionary<int, Color32[]> BaselineColors =
                 new Dictionary<int, Color32[]>();
+            internal readonly Dictionary<int, Vector3[]> BaselineVertices =
+                new Dictionary<int, Vector3[]>();
             internal string BaselineText;
             internal string StyleId;
             internal int LastVisible = -1;

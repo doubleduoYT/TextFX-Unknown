@@ -1,27 +1,19 @@
-# TextFX Unknown v0.7.1 — Emergency Glyph Scaling Hotfix
+# TextFX Unknown v0.7.2 — Isolated Giant Glyph Hotfix
 
-This hotfix responds to screenshots of individual Korean glyphs growing until they cover the entire C:U gameplay screen in v0.7.0.
+Screenshots of v0.7.1 still showed **isolated Hangul syllables appearing several times larger than ordinary dialogue**. The previous emergency fix used the four corner metrics from `TMP_CharacterInfo`, which are not always interchangeable with the actual vertices for a TextMeshPro submesh/material.
 
-## Root cause and correction
+## Rendering correction
+- Use immutable copies of the **actual TextMeshPro meshInfo.vertices** as the per-glyph baseline, instead of `TMP_CharacterInfo.bottomLeft/topLeft/topRight/bottomRight`.
+- On every new line or incremental typewriter text update, **force a full native TMP reparse** and refresh the baseline geometry and original colors.
+- Every frame now calculates the current glyph transformation relative to the same immutable actual mesh quad; never from previously modified glyph vertices or mismatched character layout metrics.
+- Final scaling is restricted to **92–108%** of actual source glyph size, rotation to **±9°**, and each output vertex to within **24% of source glyph height** from its native coordinate.
+- This applies to all composed 50 effect tags and 61 manually curated dialogue styles; only extreme zoom/rotation range is deliberately reduced.
+- Retains F7 emergency toggle and F8 diagnostic, as well as existing per-character start timing.
 
-The previous renderer used `textInfo.meshInfo.vertices` as the input geometry for the next frame. Those positions could still be **transformed from the previous frame**, so repeated scaling and rotations compounded indefinitely, despite being clamped within each individual frame.
+## Install and test
+1. Fully exit Casualties: Unknown.
+2. Replace `BepInEx/plugins/TextFXUnknown.dll` with the new DLL from this ZIP.
+3. Relaunch, verify `TextFX Unknown 0.7.2 loaded`, and test a normal dialogue without pressing F8.
+4. If giant letters recur, press F7 to suspend effects and save a screenshot and `BepInEx/LogOutput.log`.
 
-**Fix:** Read the canonical original quad corners (`TMP_CharacterInfo.bottomLeft/topLeft/topRight/bottomRight`) instead. Every new frame transforms each glyph **from its source corners**; last frame's already modified vertices are never used as the starting size or center. Request fresh TextMeshPro geometry before rendering and preserve original per-line mesh colors to prevent cumulative alpha/tint changes.
-
-Additional safeguards:
-- Absolute per-frame output scale limited to **85–115% relative to original glyph geometry**.
-- Vertex displacement (including combined scaling, rotation, translation) limited to **45% of the original glyph height**.
-- **F7 emergency toggle**: disables/restores TextFX visuals immediately, with a TMP mesh reset, without modifying game files or configs.
-- All 50 effects, 61 curated dialogue presets, 177 event groups and 194 per-line exceptions are retained.
-- Original C:U typewriter timing remains under the game's control.
-
-## Installation
-
-1. **Completely exit** C:U.
-2. Replace `BepInEx/plugins/TextFXUnknown.dll` with the new file inside this ZIP.
-3. Start C:U; look for `TextFX Unknown 0.7.1 loaded` in `BepInEx/LogOutput.log`.
-4. If any issue reoccurs, press F7 and attach a fresh log/screenshot when reporting the problem.
-
-The release ZIP contains the compiled DLL, editable source and tests; README remains on GitHub and no original game assets are bundled.
-
-GitHub Actions validates source safeguards and compilation. **Visual correctness has not yet been confirmed in a live C:U gameplay session.** Unofficial Windows Mono/BepInEx 5 fan mod by DoubDu / HGSoft.
+Built for Windows Mono/BepInEx 5, C:U 7.0 demo. CI compilation and static safety tests pass, but **actual visual behavior in-game remains unverified**. ZIP contains the compiled DLL and source/tests, without README or original game assets.
