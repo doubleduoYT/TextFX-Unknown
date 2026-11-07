@@ -10,7 +10,7 @@ using UnityEngine;
 
 namespace HGSoft.TextFXUnknown
 {
-    [BepInPlugin("com.hgsoft.textfxunknown", "TextFX Unknown", "0.4.1")]
+    [BepInPlugin("com.hgsoft.textfxunknown", "TextFX Unknown", "0.5.0")]
     public sealed partial class TextFXUnknownPlugin : BaseUnityPlugin
     {
         private Harmony harmony;
@@ -34,10 +34,25 @@ namespace HGSoft.TextFXUnknown
             instance = this;
             autoDialogue = Config.Bind("Dialogue", "AutoAnimateDialogue", true,
                 "Animate recognized character dialogue automatically, even without inline tags.");
-            effectStrength = Config.Bind("Visuals", "EffectStrength", 0.40f,
-                "Multiplier for glyph movement, bounce, glitch and color. Safe default 0.40; accepted range 0..1.");
-            maxGlyphTravel = Config.Bind("Visuals", "MaxGlyphTravel", 0.12f,
-                "Maximum movement of a glyph as a fraction of its own height (clamped to 0..0.25).");
+            effectStrength = Config.Bind("Visuals", "EffectStrength", 0.85f,
+                "Multiplier for glyph movement, bounce, glitch and color. Recommended default 0.85; accepted range 0..1.");
+            maxGlyphTravel = Config.Bind("Visuals", "MaxGlyphTravel", 0.21f,
+                "Maximum movement of a glyph as a fraction of its own height (clamped to 0..0.30).");
+            // Preserve deliberate custom settings, but migrate the two extremely
+            // subtle DEFAULT values from 0.4.1 once on upgrade. Otherwise a
+            // previously generated cfg would override the new, visible defaults.
+            var visualDefaultsRevision = Config.Bind("System", "VisualDefaultsRevision", 0,
+                "Internal one-time default migration marker.");
+            if (visualDefaultsRevision.Value < 1)
+            {
+                bool changed = false;
+                if (Mathf.Abs(effectStrength.Value - .40f) < .0001f)
+                { effectStrength.Value = .85f; changed = true; }
+                if (Mathf.Abs(maxGlyphTravel.Value - .12f) < .0001f)
+                { maxGlyphTravel.Value = .21f; changed = true; }
+                visualDefaultsRevision.Value = 1;
+                if (changed) Logger.LogInfo("[TextFX] Migrated v0.4.1's quiet default motion settings to visible v0.5.0 defaults.");
+            }
             tmpType = Type.GetType("TMPro.TMP_Text, Unity.TextMeshPro", false);
             if (tmpType == null) { Logger.LogWarning("TextMeshPro not found: TextFX Unknown is inactive."); return; }
             textProperty = tmpType.GetProperty("text", BindingFlags.Public | BindingFlags.Instance);
@@ -59,7 +74,7 @@ namespace HGSoft.TextFXUnknown
                 if (setText != null && setText.DeclaringType == type) PatchOnce(setText, patched);
             }
             InitializeDialogueHooks();
-            Logger.LogInfo("TextFX Unknown 0.4.1 loaded. Patched TMP text methods: " + patched.Count + "; AutoDialogue=" + autoDialogue.Value);
+            Logger.LogInfo("TextFX Unknown 0.5.0 loaded. Patched TMP text methods: " + patched.Count + "; AutoDialogue=" + autoDialogue.Value);
         }
 
         private static MethodInfo FindMethod(Type type, string name, int count, Type firstType = null)
@@ -242,6 +257,9 @@ namespace HGSoft.TextFXUnknown
             if (info == null) return;
             count = (int)Field(info, "characterCount");
             chars = (Array)Field(info, "characterInfo");
+            // ForceMeshUpdate may discover new glyphs which weren't present in
+            // textInfo before its layout pass. Assign each a birth time NOW.
+            while (entry.BirthTimes.Count < count) entry.BirthTimes.Add(now);
             var meshes = (Array)Field(info, "meshInfo");
             cursor = 0f;
             var used = new HashSet<int>();
@@ -264,41 +282,48 @@ namespace HGSoft.TextFXUnknown
                 // never a hard-coded distance like 2.4 or 5 Unity units.
                 float glyphHeight = Mathf.Abs(vertices[v + 2].y - vertices[v].y);
                 if (glyphHeight < 0.000001f) continue;
-                float strength = Mathf.Clamp(effectStrength.Value, 0f, 1f);
-                // Automatic motion fades after first appearance. No ongoing wild wobble.
-                float envelope = entry.Automatic
-                    ? Mathf.Clamp01((0.85f - age) / 0.55f) : 1f;
-                float dxRatio = (Mathf.Sin(now * 30f + i * 13.6f) * fx.Shake * 0.12f);
-                float dyRatio = (Mathf.Cos(now * 26f + i * 7.3f) * fx.Shake * 0.10f
-                    + Mathf.Sin(now * 5.3f + i * 0.5f) * fx.Wave * 0.10f);
-                float kick = fx.Impact * Mathf.Exp(-Mathf.Max(0f, age) * 10f);
-                dxRatio += Mathf.Sin(now * 32f + i) * kick * 0.12f;
-                dyRatio += Mathf.Cos(now * 26f + i) * kick * 0.12f;
+                bool diagnostic = entry.StyleId == "diagnostic";
+                // Diagnostic FX are deliberately noticeable, independent of a
+                // player's older, low-intensity config values.
+                float strength = diagnostic ? 1f : Mathf.Clamp(effectStrength.Value, 0f, 1f);
+                // Let ordinary lines move visibly for their whole lifetime,
+                // while keeping per-glyph movement bounded by glyph size.
+                // Entrance gets a slight boost, then holds a gentle 55% sway.
+                float envelope = diagnostic ? 1f :
+                    (entry.Automatic ? Mathf.Lerp(.55f, 1f, Mathf.Clamp01((1.5f - age) / 1.1f)) : 1f);
+                float dxRatio = Mathf.Sin(now * 18f + i * 9.1f) * fx.Shake * .28f;
+                float dyRatio = Mathf.Cos(now * 21f + i * 6.4f) * fx.Shake * .22f +
+                    Mathf.Sin(now * (diagnostic ? 8.4f : 5.9f) + i * .75f) * fx.Wave * .27f;
+                float kick = fx.Impact * Mathf.Exp(-Mathf.Max(0f, age) * 8f);
+                dxRatio += Mathf.Sin(now * 38f + i * 2.2f) * kick * .18f;
+                dyRatio += Mathf.Cos(now * 31f + i * 1.5f) * kick * .19f;
                 float glitchPulse = Mathf.Sin(now * 28f + i * 17.91f);
-                bool glitchActive = fx.Glitch > 0f && age < 0.35f && glitchPulse > .78f;
+                bool glitchActive = fx.Glitch > 0f &&
+                    (diagnostic || age < .45f) && glitchPulse > .72f;
                 if (glitchActive)
                 {
-                    dxRatio += Mathf.Sin(now * 45f + i * 4.8f) * fx.Glitch * 0.12f;
-                    dyRatio -= fx.Glitch * 0.035f;
+                    dxRatio += Mathf.Sin(now * 42f + i * 4.8f) * fx.Glitch * .17f;
+                    dyRatio -= fx.Glitch * .09f;
                 }
-                // Clamp the combined displacement in *both* axes to 12% of glyph
-                // height by default. This keeps nearby letters in their own slots.
                 Vector2 displacement = new Vector2(dxRatio, dyRatio) *
                     (glyphHeight * strength * envelope);
-                float maximum = glyphHeight * Mathf.Clamp(maxGlyphTravel.Value, 0f, .25f);
-                displacement = Vector2.ClampMagnitude(displacement, maximum);
+                // Hard cap prevents the off-screen scattered characters seen in 0.4.0.
+                // F8 is stronger, but still safely confined to 27% of glyph height.
+                float travelLimit = diagnostic ? .27f :
+                    Mathf.Clamp(maxGlyphTravel.Value, 0f, .30f);
+                displacement = Vector2.ClampMagnitude(displacement, glyphHeight * travelLimit);
 
                 float alpha = fx.FadeIn > 0 ? Mathf.Clamp01(age / fx.FadeIn) : 1f;
                 if (fx.FadeOut > 0) alpha *= Mathf.Clamp01(1f - age / fx.FadeOut);
                 alpha *= fx.Alpha;
                 // Limit entrance bounce to 6% of original size.
                 float bounce = fx.Ease
-                    ? Mathf.Exp(-Mathf.Max(0f, age) * 11f) *
-                      Mathf.Sin(Mathf.Max(0f, age) * 17f) * .06f * strength * envelope
+                    ? Mathf.Exp(-Mathf.Max(0f, age) * 7f) *
+                      Mathf.Sin(Mathf.Max(0f, age) * 17f) * .11f * strength
                     : 0f;
-                float scale = 1f + Mathf.Clamp(bounce, -.06f, .06f);
+                float scale = 1f + Mathf.Clamp(bounce, -.11f, .11f);
                 var center = (vertices[v] + vertices[v + 2]) * .5f;
-                float blend = (entry.Automatic ? .22f : .45f) * strength;
+                float blend = diagnostic ? .98f : (entry.Automatic ? .44f : .55f) * strength;
                 for (int j = 0; j < 4; j++)
                 {
                     vertices[v + j] = center + (vertices[v + j] - center) * scale +
@@ -318,7 +343,8 @@ namespace HGSoft.TextFXUnknown
                     }
                     if (fx.Rainbow)
                     {
-                        Color rgb = Color.HSVToRGB(Mathf.Repeat(now * .20f + i * .07f, 1f), .60f, 1f);
+                        Color rgb = Color.HSVToRGB(Mathf.Repeat(now * (diagnostic ? .55f : .23f) + i * .08f, 1f),
+                            diagnostic ? 1f : .72f, 1f);
                         c.r = (byte)Mathf.Lerp(c.r, rgb.r * 255f, blend);
                         c.g = (byte)Mathf.Lerp(c.g, rgb.g * 255f, blend);
                         c.b = (byte)Mathf.Lerp(c.b, rgb.b * 255f, blend);

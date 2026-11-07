@@ -4,7 +4,7 @@
 
 TextFX Unknown is an **unofficial, experimental BepInEx 5 mod** that gives dialogue a bit more personality. Use simple inline tags to make words shake, sway, appear gradually, or land with an impact. It also works with TextMeshPro's existing formatting tags, so you can combine animation with color, bold text, and font sizes.
 
-> **Preview build:** This project targets the Windows Mono version of **Casualties: Unknown 7.0 Demo (Unity 2022.3.62f3)**. The plugin has been tested by a community user in the 7.0 demo for a basic wave effect, but v0.4.0's effects were reported as too large and scattered across the screen, prompting these safety limits. v0.4.1 has not yet been confirmed in a live game. It is not confirmed to work in every scene or in the full release. Please report any issues with the BepInEx log attached.
+> **Preview build:** This project targets the Windows Mono version of **Casualties: Unknown 7.0 Demo (Unity 2022.3.62f3)**. The plugin has been tested by a community user in the 7.0 demo for a basic wave effect, but v0.4.0 was reported as too large and v0.4.1 as too subtle; v0.5.0 balances visible motion with safe per-glyph displacement limits. This build has not yet been visually tested in-game. It is not confirmed to work in every scene or in the full release. Please report any issues with the BepInEx log attached.
 
 ## What does it do?
 
@@ -15,22 +15,32 @@ TextFX Unknown is an **unofficial, experimental BepInEx 5 mod** that gives dialo
 - **TextMeshPro formatting:** preserve built-in tags like `<color>`, `<b>`, `<i>`, `<size>`, and `<sprite>`.
 - **Korean and English:** the effects work with both, as long as the game actually passes the tagged text to a TMP text component.
 
-## Automatic dialogue animation — v0.4.1
+## Automatic dialogue animation — v0.5.0
 
-**No localization JSON edits required.** The game still controls the speed and visibility of each letter; TextFX decorates the characters as soon as they become visible. Automatic dialogue detection works with both incremental text changes (`H → He → Hel...`) and TextMeshPro's built-in `maxVisibleCharacters` reveal. An animation state remembers the appearance time of **each glyph**, so newly revealed characters animate immediately instead of waiting for the end of a line. **v0.4.1 keeps every moving letter near its original position**: motion is measured as a percentage of that glyph's actual height, then strictly capped.
+**No localization JSON edits required.** The game still controls the speed and visibility of each letter; TextFX decorates the characters as soon as they become visible. Automatic dialogue detection works with both incremental text changes (`H → He → Hel...`) and TextMeshPro's built-in `maxVisibleCharacters` reveal. An animation state remembers the appearance time of **each glyph**, so newly revealed characters animate immediately instead of waiting for the end of a line. **Letters stay near their original positions**: all motion is measured as a percentage of each glyph's height, then strictly capped.
 
-### Adjust the intensity
+### Visible movement, without scattered letters
 
-v0.4.1 greatly reduces excessively large text effects seen in v0.4.0. The plugin applies two safety controls even when an animated tag requests strong shake:
+v0.5.0 makes normal dialogue visibly animated again. **Every recognized C:U character dialogue line** gets an effect automatically — including ordinary speech that contains no emotional keywords — while the game's original letter-by-letter reveal remains in control. TalkText, trader dialogue, speech bubbles, and subtitle-like TMP objects are prioritized; messages observed through `Talker.Talk` can also be matched. This avoids altering game localization JSON files or broadcasting modified text in multiplayer.
 
-- `EffectStrength = 0.40` — gentle default multiplier for shake, bounce, glitch, and colors (clamped to 0–1).
-- `MaxGlyphTravel = 0.12` — hard limit on how far a letter can move, expressed as a fraction of its own height (hard-capped at 0.25).
+Unlike the oversized v0.4.0 visuals, all movement is based on **each letter's height** and has a strict distance cap. Basic characters gently sway throughout a line rather than losing all movement after less than one second.
 
-After first appearing, automatic motion eases out in about **0.85 seconds**. The original C:U typewriter stays in control of letter visibility. No font is allowed to jump by absolute world-space distances.
+The following settings are in `BepInEx/config/com.hgsoft.textfxunknown.cfg`:
 
-You can change the values in `BepInEx/config/com.hgsoft.textfxunknown.cfg` under `[Visuals]`. For an even calmer effect, try `EffectStrength = 0.25` and `MaxGlyphTravel = 0.08`.
+```ini
+[Visuals]
+EffectStrength = 0.85
+MaxGlyphTravel = 0.21
+```
 
-Automatic effects now prioritize named character dialogue targets and require at least four matching characters for fallback text matching. This reduces accidental animation of unrelated interface text.
+- `EffectStrength` controls visible letter movement and color blending (0–1).
+- `MaxGlyphTravel` is the maximum travel measured as a fraction of each glyph's height, with a hard maximum of 0.30. It never uses absolute world-coordinate jumps.
+- Existing v0.4.1 configuration files that still contain the **original defaults** 0.40 / 0.12 are automatically upgraded once to 0.85 / 0.21. User-customized values are preserved.
+- For calmer text, choose `EffectStrength = 0.60` and `MaxGlyphTravel = 0.15`. For more movement, use 1.0 / 0.25.
+
+**F8 diagnostic:** Press F8 at any time to show strong, saturated rainbow coloring, continuous wave/shake, and a short glitch effect for **six seconds** on up to ten active TMP text labels. The test is independent of ordinary visual-intensity settings, and it resets a line's old glyph timers so it works even *after* the text finishes displaying. F8 deliberately uses stronger but still bounded movement (maximum 27% of glyph height).
+
+Some unusual scene objects or non-TextMeshPro dialogue components may not be recognized. The current preview does not guarantee 100% coverage of every scene; please report missing lines with a log or screenshot.
 
 ### Emotion-aware presets
 
@@ -50,7 +60,7 @@ Mood is inferred using the complete line from `Talker.Talk` when accessible, oth
 
 ### Diagnose rendering with F8
 
-Press **F8** in a game scene to try a six-second rainbow/glitch/shake visual diagnostic on up to ten active TMP labels. The BepInEx log includes `[TextFX]` lines for `Talker.Talk observed`, `Auto FX started/updated`, and errors. Try F8 if no effects appear. A lag of approximately one rendered frame can occur depending on how the game updates text.
+Press **F8** in a game scene to run the visible six-second rainbow/glitch/shake test on up to ten active TMP labels. The BepInEx log includes `[TextFX]` lines for `Talker.Talk observed`, `Auto FX started/updated`, and errors. Try F8 if no effects appear. A lag of approximately one rendered frame can occur depending on how the game updates text.
 
 Use `AutoAnimateDialogue = false` in `BepInEx/config/com.hgsoft.textfxunknown.cfg` to disable automatic effects while leaving manually tagged text enabled.
 
@@ -59,9 +69,9 @@ No external character or item assets are bundled. **Textures, images, portraits 
 ## Installing
 
 1. Install **BepInEx 5 (Mono, Windows x64)** in your copy of Casualties: Unknown. [BepInEx releases](https://github.com/BepInEx/BepInEx/releases).
-2. Open the [latest TextFX Unknown release](../../releases) and download `TextFX-Unknown-v0.4.1-pre.1.zip`.
+2. Open the [latest TextFX Unknown release](../../releases) and download `TextFX-Unknown-v0.5.0-pre.1.zip`.
 3. From the ZIP, extract **`BepInEx/plugins/TextFXUnknown.dll`** into the corresponding folder inside your game directory.
-4. Launch the game and look for `TextFX Unknown 0.4.1 loaded` in `BepInEx/LogOutput.log`.
+4. Launch the game and look for `TextFX Unknown 0.5.0 loaded` in `BepInEx/LogOutput.log`.
 
 The ZIP also contains editable **source code**, but you don't need it just to play. It intentionally **does not contain a README**, BepInEx itself, game files, or Unity reference DLLs.
 

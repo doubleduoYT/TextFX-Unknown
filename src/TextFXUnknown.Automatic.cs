@@ -112,7 +112,9 @@ namespace HGSoft.TextFXUnknown
                     name.Contains("chatinput"))
                     return false;
                 if (name.Contains("chartalktext") || name.Contains("tradertalktext") ||
-                    name.Contains("talktext") || name.Contains("dialoguetext"))
+                    name.Contains("talktext") || name.Contains("dialoguetext") ||
+                    name.Contains("speechtext") || name.Contains("subtitle") ||
+                    name.Contains("bubbletext"))
                     return true;
                 if (depth <= 1 && (name.Contains("speech") || name.Contains("bubble") ||
                     name.Contains("dialog") || name.Contains("talk")))
@@ -123,13 +125,16 @@ namespace HGSoft.TextFXUnknown
 
         // Prefix recognition is key: C:U may set "H", then "He", then "Hel" ...
         // Waiting for a complete-string match starts FX only AFTER the last glyph.
-        private bool MatchesRecentTalk(string visible)
+        private bool MatchesRecentTalk(string visible, bool namedDialogueTarget)
         {
-            if (Time.unscaledTime - recentTalkAt > 5f || cleanRecentTalk.Length < 4) return false;
+            if (Time.unscaledTime - recentTalkAt > 5f || cleanRecentTalk.Length == 0) return false;
             string partial = StripTags(visible).Trim();
-            // Very short prefixes like "a"/"th" can otherwise animate unrelated UI.
-            // Named character talk text still receives its first letter immediately.
-            if (partial.Length < 4) return false;
+            if (partial.Length == 0) return false;
+            // A TalkText target is trusted from the very first glyph, allowing
+            // emotion classification from the FULL Talker line during typewriter.
+            // Unknown UI targets require four characters to avoid false positives.
+            if (!namedDialogueTarget && (partial.Length < 4 || cleanRecentTalk.Length < 4))
+                return false;
             return cleanRecentTalk.StartsWith(partial, StringComparison.OrdinalIgnoreCase) ||
                    partial.StartsWith(cleanRecentTalk, StringComparison.OrdinalIgnoreCase);
         }
@@ -165,17 +170,17 @@ namespace HGSoft.TextFXUnknown
         {
             switch (emotion)
             {
-                case "fear": return "<tint=#FF9BAA><shake=0.85><glitch=0.34><fadein=0.48>";
-                case "anger": return "<tint=#FF7777><shake=0.5><impact=0.7><fadein=0.18>";
-                case "surprise": return "<tint=#FFE49B><impact=1><ease><fadein=0.24>";
-                case "joy": return "<ease><rainbow><fadein=0.36>";
-                case "sad": return "<tint=#A8CAFF><fadein=0.65><alpha=0.85><wave=0.13>";
-                case "confused": return "<tint=#C9B4FF><wave=0.52><glitch=0.13><fadein=0.40>";
+                case "fear": return "<tint=#FF9BAA><shake=0.85><wave=0.28><glitch=0.34><fadein=0.28>";
+                case "anger": return "<tint=#FF7777><shake=0.70><wave=0.20><impact=0.9><fadein=0.20>";
+                case "surprise": return "<tint=#FFE49B><impact=0.95><wave=0.60><ease><fadein=0.22>";
+                case "joy": return "<ease><wave=0.60><rainbow><fadein=0.28>";
+                case "sad": return "<tint=#A8CAFF><fadein=0.60><alpha=0.88><wave=0.56>";
+                case "confused": return "<tint=#C9B4FF><wave=0.78><glitch=0.13><fadein=0.32>";
                 default:
-                    if (speaker == "milky") return "<tint=#FFE2F3><ease><fadein=0.37>";
-                    if (speaker == "dune") return "<tint=#E8CBFF><wave=0.12><fadein=0.54>";
-                    if (speaker == "experiment") return "<ease><fadein=0.26>";
-                    return "<fadein=0.32><ease>";
+                    if (speaker == "milky") return "<tint=#FFE2F3><wave=0.58><ease><fadein=0.30>";
+                    if (speaker == "dune") return "<tint=#E8CBFF><wave=0.46><fadein=0.42>";
+                    if (speaker == "experiment") return "<wave=0.72><ease><fadein=0.24>";
+                    return "<wave=0.63><ease><fadein=0.28>";
             }
         }
 
@@ -233,7 +238,7 @@ namespace HGSoft.TextFXUnknown
                 if (raw.Length > 350 || FxParser.MightContainEffects(raw)) continue;
                 bool named;
                 dialogueNameCache.TryGetValue(id, out named);
-                bool matched = MatchesRecentTalk(raw);
+                bool matched = MatchesRecentTalk(raw, named);
                 TextAnimation existing;
                 bool exists = animations.TryGetValue(id, out existing);
                 if (exists && !existing.Automatic) continue; // explicit tags win
@@ -262,6 +267,13 @@ namespace HGSoft.TextFXUnknown
                 if (continuing)
                 {
                     existing.Parsed = parsed;
+                    // Pressing F8 on an already completed line must RESTART the
+                    // diagnostic, not inherit multi-second-old glyph timestamps.
+                    if (diagnostic && !previouslyDiagnostic)
+                    {
+                        for (int i = 0; i < existing.BirthTimes.Count; i++)
+                            existing.BirthTimes[i] = Time.unscaledTime;
+                    }
                     existing.StyleId = mode;
                 }
                 else
@@ -270,7 +282,8 @@ namespace HGSoft.TextFXUnknown
                     animations[id].StyleId = mode;
                 }
                 lastAutoText[id] = raw;
-                if (diagnostic) testApplied++;
+                // Count each TARGET once, rather than every intermediate letter.
+                if (diagnostic && !previouslyDiagnostic) testApplied++;
                 autoApplied++;
                 if (autoApplied <= 22)
                     Logger.LogInfo("[TextFX] Auto FX started/updated: " + component.gameObject.name +

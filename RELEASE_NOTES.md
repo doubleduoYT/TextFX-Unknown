@@ -1,23 +1,21 @@
-# TextFX Unknown v0.4.1 — Preview 1
+# TextFX Unknown v0.5.0 Preview 1
 
-This release fixes over-sized, scattered text effects reported with screenshots from v0.4.0.
+**More visible motion for every detected character dialogue line.** This preview responds to reports that v0.4.1 made text movement nearly invisible and that F8 was too subtle.
 
-## Fixes
-- **Glyph-relative movement:** all shake, wave, impact, and glitch displacements are now computed from each character's actual mesh height instead of fixed Unity coordinates such as 2.4 or 5.
-- **Hard travel limit:** no letter moves farther than **12% of its own height** by default. This limit is capped at 25% even if users increase the config.
-- **Lower default intensity:** `EffectStrength = 0.40` in `[Visuals]`; `MaxGlyphTravel = 0.12`. Both are configurable in `BepInEx/config/com.hgsoft.textfxunknown.cfg`.
-- **Short animated entrance:** automatic movement fades out within about 0.85 seconds per letter, preventing continuous large wobbling.
-- **Gentler bounce and colors:** entrance scale is limited to ±6% before strength; color tints and rainbow blend more subtly.
-- **Reduced accidental UI effects:** narrower character dialogue object detection and safer `Talker.Talk` prefix matching.
-- **Immediate animation retained:** each visible character still gets a separate start time without changing the game's original typewriter behavior.
-- Existing emotion-based presets and F8 diagnostic remain available. Manual inline FX are also bounded by the same safety limit.
+## What's changed
+- **Visible automatic effects on ordinary speech:** all recognized character dialogue gets a wave or similar movement, even if the line is not angry, afraid, or excited. Coverage includes named TalkText, trader text, speech/subtitle-like TMP objects, and active text that matches Talker.Talk.
+- **Effects start as text types:** per-character timing and C:U's original typewriter reveal are preserved; early matching uses the full Talker sentence to classify emotion from the first displayed glyph on recognized dialogue targets.
+- **Stronger, safer motion:** default `EffectStrength = 0.85`, `MaxGlyphTravel = 0.21`. Movement stays within 21% of each glyph's height by default, capped at 30% if raised in config. Sway remains visible during the line, rather than expiring after the first 0.85 seconds.
+- **F8 visual test fixed:** six seconds of strong saturated rainbow, wave, shake and glitch, independent of existing low intensity config, with a safe 27% glyph-height travel cap. Re-enters the diagnostic by resetting glyph animation ages for already completed text.
+- **Automatic config migration:** old untouched v0.4.1 default settings (0.40/0.12) upgrade once to the new defaults. Deliberately customized settings are left unchanged.
+- **More reliable glyph timing:** assign birth times to characters discovered during the TMP mesh update as well.
+- **Emotion presets preserved:** fear, anger, surprise, joy, sadness, confusion, neutral and character-based variants.
+- **ZIP excludes README** (available in repository). Includes built `TextFXUnknown.dll` and editable source/build scripts, no original game assets.
 
-## Installation
-Replace `BepInEx/plugins/TextFXUnknown.dll` with the DLL from the release ZIP and start the game. Verify `Loading [TextFX Unknown 0.4.1]` in the BepInEx log. Use F8 to test if necessary.
+## Install
+Replace `BepInEx/plugins/TextFXUnknown.dll` with the DLL from `TextFX-Unknown-v0.5.0-pre.1.zip`. Confirm `Loading [TextFX Unknown 0.5.0]` in `BepInEx/LogOutput.log`. Press F8 to verify a noticeable animation; observe normal character speech to verify default movement.
 
-## Compatibility and validation
-- For Windows x64, Unity Mono, BepInEx 5, C:U 7.0 demo.
-- The compiled DLL and editable source are packaged in the ZIP; **README stays in the GitHub repository**.
-- Automated compilation, packaging, and archive validation are performed by GitHub Actions.
-- **A successful build does not guarantee that every game scene is visually correct.** Live visual testing of this fix is pending.
-- This is an unofficial fan mod. No game assets or third-party DLLs are redistributed.
+## Limitations
+This is a Windows BepInEx 5 / Mono preview for the C:U 7.0 demo, not a guaranteed full-release/IL2CPP/Android build. Automatic coverage applies to **detected TextMeshPro character dialogue**, not unrelated menus or every unknown renderer. v0.5.0's effects have not yet been verified by an actual gameplay test; GitHub Actions compilation and archive validation are separate checks. No permission to redistribute the game's original files is implied.
+
+Unofficial mod by DoubDu / HGSoft; not affiliated with the game's rights holders.
