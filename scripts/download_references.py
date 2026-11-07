@@ -9,7 +9,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 REFS = ROOT / 'refs'
 REFS.mkdir(exist_ok=True)
-TARGETS = ('BepInEx.dll', '0Harmony.dll', 'UnityEngine.CoreModule.dll')
+TARGETS = ('BepInEx.dll', '0Harmony.dll', 'UnityEngine.CoreModule.dll', 'UnityEngine.dll')
 
 
 def get_zip(url):
@@ -44,18 +44,21 @@ def main():
         for target in ('BepInEx.dll', '0Harmony.dll'):
             if target in missing and not extract_by_basename(archive, target):
                 raise FileNotFoundError(target+' not found in BepInEx archive')
-    if 'UnityEngine.CoreModule.dll' in missing:
+    if 'UnityEngine.CoreModule.dll' in missing or 'UnityEngine.dll' in missing:
         versions = ['2022.3.62', '2022.3.60']
         errors=[]
         for version in versions:
             try:
                 archive=get_zip('https://unity.bepinex.dev/libraries/'+version+'.zip')
-                if extract_by_basename(archive, 'UnityEngine.CoreModule.dll'):
+                for target in ('UnityEngine.CoreModule.dll', 'UnityEngine.dll'):
+                    if target in missing:
+                        extract_by_basename(archive, target)
+                if all((REFS/t).exists() for t in ('UnityEngine.CoreModule.dll', 'UnityEngine.dll')):
                     break
                 errors.append(version+': missing CoreModule in archive')
             except Exception as e:
                 errors.append(version+': '+str(e))
-        if not (REFS/'UnityEngine.CoreModule.dll').exists():
+        if not all((REFS/t).exists() for t in ('UnityEngine.CoreModule.dll', 'UnityEngine.dll')):
             raise RuntimeError('Could not obtain Unity reference: '+' | '.join(errors))
     for target in TARGETS:
         if not (REFS/target).exists():

@@ -12,6 +12,7 @@
   <ItemGroup>
     <Reference Include="BepInEx"><HintPath>../refs/BepInEx.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="0Harmony"><HintPath>../refs/0Harmony.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine"><HintPath>../refs/UnityEngine.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.CoreModule"><HintPath>../refs/UnityEngine.CoreModule.dll</HintPath><Private>false</Private></Reference>
   </ItemGroup>
 </Project>
