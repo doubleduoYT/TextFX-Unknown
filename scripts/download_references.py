@@ -45,7 +45,7 @@ def main():
             if target in missing and not extract_by_basename(archive, target):
                 raise FileNotFoundError(target+' not found in BepInEx archive')
     if 'UnityEngine.CoreModule.dll' in missing:
-        versions = ['2022.3.62f3', '2022.3.60f1']
+        versions = ['2022.3.62', '2022.3.60']
         errors=[]
         for version in versions:
             try:
