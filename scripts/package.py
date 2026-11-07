@@ -7,7 +7,7 @@ import hashlib
 ROOT=Path(__file__).resolve().parents[1]
 DIST=ROOT/'dist'
 DIST.mkdir(exist_ok=True)
-DLL=ROOT/'src/bin/Release/netstandard2.0/TextFXUnknown.dll'
+DLL=ROOT/'src/bin/Release/netstandard2.1/TextFXUnknown.dll'
 if not DLL.exists() or DLL.stat().st_size < 4096:
     raise SystemExit('Build DLL not found or too small: '+str(DLL))
 OUTPUT=DIST/'TextFX-Unknown-v0.3.0-pre.1.zip'
