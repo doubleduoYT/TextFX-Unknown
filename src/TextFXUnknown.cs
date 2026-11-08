@@ -10,7 +10,7 @@ using UnityEngine;
 
 namespace HGSoft.TextFXUnknown
 {
-    [BepInPlugin("com.hgsoft.textfxunknown", "TextFX Unknown", "0.7.4")]
+    [BepInPlugin("com.hgsoft.textfxunknown", "TextFX Unknown", "0.7.5")]
     public sealed partial class TextFXUnknownPlugin : BaseUnityPlugin
     {
         private Harmony harmony;
@@ -80,7 +80,7 @@ namespace HGSoft.TextFXUnknown
             }
             InitializeDialogueHooks();
             InitializeCuratedProfiles();
-            Logger.LogInfo("TextFX Unknown 0.7.4 loaded. Patched TMP text methods: " + patched.Count + "; AutoDialogue=" + autoDialogue.Value);
+            Logger.LogInfo("TextFX Unknown 0.7.5 loaded. Patched TMP text methods: " + patched.Count + "; AutoDialogue=" + autoDialogue.Value);
         }
 
         private static MethodInfo FindMethod(Type type, string name, int count, Type firstType = null)
@@ -106,9 +106,13 @@ namespace HGSoft.TextFXUnknown
             if (plugin == null || !FxParser.MightContainEffects(__0)) return;
             var parsed = FxParser.Parse(__0);
             if (!parsed.HasEffects) return;
+            // Preserve native TMP rich tags; remove only TextFX-specific tags
+            // for all text, including UI. Only confirmed character speech gets
+            // vertex animation. The rest of the HUD stays completely untouched.
             __0 = parsed.Text;
             var component = __instance as Component;
-            if (component != null) plugin.Animate(component, parsed);
+            if (component != null && NameLooksLikeDialogue(component))
+                plugin.Animate(component, parsed);
         }
 
         private void Animate(Component component, FxParsed parsed, bool automatic = false)
@@ -187,7 +191,11 @@ namespace HGSoft.TextFXUnknown
                     if (!FxParser.MightContainEffects(raw)) continue;
                     var parsed = FxParser.Parse(raw);
                     if (!parsed.HasEffects) continue;
-                    Animate(component, parsed);
+                    // Defensive sanitation for text assigned via unusual TMP
+                    // overloads: remove our inline tags, but animate ONLY a
+                    // confirmed character dialogue object (never HUD/debug).
+                    if (NameLooksLikeDialogue(component))
+                        Animate(component, parsed);
                     textProperty.SetValue(candidate, parsed.Text, null);
                 }
             }
@@ -205,7 +213,12 @@ namespace HGSoft.TextFXUnknown
             {
                 var entry = pair.Value;
                 var component = entry.Component;
-                if (component == null || !component.gameObject.activeInHierarchy) { expired.Add(pair.Key); continue; }
+                if (component == null || !component.gameObject.activeInHierarchy ||
+                    !NameLooksLikeDialogue(component))
+                {
+                    expired.Add(pair.Key);
+                    continue;
+                }
                 if (entry.Automatic && entry.StyleId == "diagnostic" &&
                     Time.unscaledTime > testUntil)
                 {
@@ -240,6 +253,9 @@ namespace HGSoft.TextFXUnknown
         private void Draw(TextAnimation entry)
         {
             var component = entry.Component;
+            // Last line of defense: never touch HUD/version/debug fonts, even
+            // when a stale animation entry or an F8 diagnostic targets them.
+            if (!NameLooksLikeDialogue(component)) return;
             var info = textInfoProperty.GetValue(component, null);
             if (info == null) return;
             int count = (int)Field(info, "characterCount");

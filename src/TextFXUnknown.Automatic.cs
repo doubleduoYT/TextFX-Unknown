@@ -45,7 +45,9 @@ namespace HGSoft.TextFXUnknown
                 if (args.Length < 1 || args[0].ParameterType != typeof(string)) continue;
                 try
                 {
-                    harmony.Patch(method, postfix: new HarmonyMethod(typeof(TextFXUnknownPlugin), nameof(OnTalk)));
+                    // Sanitize TextFX tags BEFORE C:U's typewriter or layout
+                    // can split them into raw characters and corrupt the HUD.
+                    harmony.Patch(method, prefix: new HarmonyMethod(typeof(TextFXUnknownPlugin), nameof(OnTalk)));
                     patched++;
                 }
                 catch (Exception ex)
@@ -56,10 +58,18 @@ namespace HGSoft.TextFXUnknown
             Logger.LogInfo("[TextFX] Talker.Talk patched overloads: " + patched);
         }
 
-        private static void OnTalk(object __instance, string __0)
+        private static void OnTalk(object __instance, ref string __0)
         {
             var plugin = instance;
             if (plugin == null || string.IsNullOrWhiteSpace(__0)) return;
+            // The localized JSON may contain the raw <tint>/<spring>/etc
+            // markup. Pass ONLY the clean sentence into Talker.Talk so game
+            // character-by-character loops never print partial/invalid tags.
+            if (FxParser.MightContainEffects(__0))
+            {
+                var parsed = FxParser.Parse(__0);
+                if (parsed.HasEffects) __0 = parsed.Text;
+            }
             plugin.recentTalk = __0;
             plugin.cleanRecentTalk = StripTags(__0).Trim();
             plugin.recentTalkAt = Time.unscaledTime;
@@ -76,7 +86,7 @@ namespace HGSoft.TextFXUnknown
             testUntil = Time.unscaledTime + 6f;
             nextCandidateRefresh = -1f;
             testApplied = 0;
-            Logger.LogInfo("[TextFX] F8 diagnostic: rainbow/glitch/shake on active TMP labels for 6 seconds.");
+            Logger.LogInfo("[TextFX] F8 diagnostic: rainbow/glitch/shake on recognized dialogue TMP only for 6 seconds.");
         }
 
         private static string StripTags(string value)
@@ -99,25 +109,31 @@ namespace HGSoft.TextFXUnknown
 
         private static bool NameLooksLikeDialogue(Component component)
         {
-            // Never treat an entire menu/canvas tree as dialogue just because a
-            // distant ancestor happens to contain "talk"/"dialog".
+            // Critical HUD-safety rule: Never animate an arbitrary TMP object just
+            // because a long-ago Talker.Talk string happens to match its content.
+            // The previous broad 'talk/dialog/speech' ancestor scan picked up UI.
+            // Real C:U character bubbles were observed as 'TalkText' in logs.
+            if (component == null) return false;
             int depth = 0;
-            for (var node = component.transform; depth < 4 && node != null;
+            for (var node = component.transform; node != null && depth < 3;
                 node = node.parent, depth++)
             {
                 string name = node.name.ToLowerInvariant();
-                if (name.Contains("menu") || name.Contains("inventory") ||
-                    name.Contains("tooltip") || name.Contains("setting") ||
-                    name.Contains("lobby") || name.Contains("button") ||
-                    name.Contains("chatinput"))
+                // Always reject HUD/debug/menu/notifications, regardless of tags.
+                if (name.Contains("hud") || name.Contains("debug") ||
+                    name.Contains("version") || name.Contains("beta") ||
+                    name.Contains("hint") || name.Contains("notification") ||
+                    name.Contains("setting") || name.Contains("menu") ||
+                    name.Contains("inventory") || name.Contains("tooltip") ||
+                    name.Contains("button") || name.Contains("lobby") ||
+                    name.Contains("status") || name.Contains("chatinput") ||
+                    name.Contains("healthbar") || name.Contains("itemlabel"))
                     return false;
-                if (name.Contains("chartalktext") || name.Contains("tradertalktext") ||
-                    name.Contains("talktext") || name.Contains("dialoguetext") ||
-                    name.Contains("speechtext") || name.Contains("subtitle") ||
-                    name.Contains("bubbletext"))
-                    return true;
-                if (depth <= 1 && (name.Contains("speech") || name.Contains("bubble") ||
-                    name.Contains("dialog") || name.Contains("talk")))
+                if (depth <= 1 &&
+                    (name.Contains("talktext") || name.Contains("tradertalktext") ||
+                     name.Contains("chartalktext") || name.Contains("dialoguetext") ||
+                     name.Contains("speechtext") || name.Contains("bubbletext") ||
+                     name.Contains("subtitletext")))
                     return true;
             }
             return false;
@@ -240,12 +256,15 @@ namespace HGSoft.TextFXUnknown
                 if (raw.Length > 350 || FxParser.MightContainEffects(raw)) continue;
                 bool named;
                 dialogueNameCache.TryGetValue(id, out named);
+                // Only confirmed dialogue objects may have vertices modified.
+                // Never animate a matched HUD label or arbitrary screen text.
+                if (!named) continue;
                 bool matched = MatchesRecentTalk(raw, named);
                 TextAnimation existing;
                 bool exists = animations.TryGetValue(id, out existing);
                 if (exists && !existing.Automatic) continue; // explicit tags win
                 bool previouslyDiagnostic = exists && existing.StyleId == "diagnostic";
-                bool diagnostic = Time.unscaledTime < testUntil && raw.Length <= 160 &&
+                bool diagnostic = named && Time.unscaledTime < testUntil && raw.Length <= 160 &&
                     (testApplied < 10 || previouslyDiagnostic);
                 if (!diagnostic && (!autoDialogue.Value || !(named || matched))) continue;
 
