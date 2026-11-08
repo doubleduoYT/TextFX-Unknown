@@ -73,7 +73,8 @@ namespace HGSoft.TextFXUnknown
             return HexOrDefault(parts[second ? 1 : 0], fallback);
         }
 
-        private static FxFrame EvaluateExtendedEffects(FxState fx, int index, int count, float now, float age)
+        private static FxFrame EvaluateExtendedEffects(FxState fx, int index, int count,
+            float now, float age, bool sustainAmbient)
         {
             var output = FxFrame.Identity();
             if (fx.Extra.Count == 0) return output;
@@ -86,7 +87,16 @@ namespace HGSoft.TextFXUnknown
 
             // 12 movement effects
             a = fx.Get("bounce");
-            if (a > 0f) output.Offset.y -= Mathf.Abs(Mathf.Sin(t * 14f)) * .18f * entrance * a;
+            if (a > 0f)
+            {
+                // Initial pop finishes, but the quieter rhythmic bounce remains
+                // for as long as the dialogue is visible, not just while typing.
+                float entrancePop = Mathf.Abs(Mathf.Sin(t * 14f)) * .18f * entrance;
+                float idleBounce = sustainAmbient
+                    ? .073f * Mathf.Pow(Mathf.Max(0f,
+                        Mathf.Sin(now * 4.8f + i * .37f)), 2f) : 0f;
+                output.Offset.y -= (entrancePop + idleBounce) * a;
+            }
             a = fx.Get("sway");
             if (a > 0f) output.Offset.x += Mathf.Sin(slow) * .17f * a;
             a = fx.Get("rotate");
@@ -116,7 +126,13 @@ namespace HGSoft.TextFXUnknown
             a = fx.Get("drop");
             if (a > 0f) output.Offset.y += .24f * entrance * a;
             a = fx.Get("float");
-            if (a > 0f) output.Offset.y -= .23f * entrance * a;
+            if (a > 0f)
+            {
+                float rise = .23f * entrance;
+                float hover = sustainAmbient
+                    ? .076f * Mathf.Sin(now * 2.1f + i * .27f) : 0f;
+                output.Offset.y -= (rise + hover) * a;
+            }
             a = fx.Get("slide");
             if (a > 0f) output.Offset.x += (index % 2 == 0 ? -.24f : .24f) * entrance * a;
             a = fx.Get("twist");
@@ -128,8 +144,12 @@ namespace HGSoft.TextFXUnknown
             a = fx.Get("elastic");
             if (a > 0f)
             {
-                float stretch = Mathf.Sin(t * 18f) * entrance * .18f * a;
-                output.ScaleX -= stretch * .65f; output.ScaleY += stretch;
+                float entranceStretch = Mathf.Sin(t * 18f) * entrance * .18f;
+                float idleStretch = sustainAmbient
+                    ? .039f * Mathf.Sin(now * 2.7f + i * .26f) : 0f;
+                float stretch = (entranceStretch + idleStretch) * a;
+                output.ScaleX -= stretch * .65f;
+                output.ScaleY += stretch;
             }
 
             // 10 reveal and exit effects (Fade In/Out and typewriter have native
@@ -149,8 +169,14 @@ namespace HGSoft.TextFXUnknown
             a = fx.Get("spring");
             if (a > 0f)
             {
-                float spring = .17f * Mathf.Exp(-t * 5.5f) * Mathf.Sin(t * 19f) * a;
-                output.ScaleX += spring; output.ScaleY += spring;
+                // Spring settles after the entrance, then continues as a
+                // deliberately restrained pulse, without cumulative resizing.
+                float landing = .17f * Mathf.Exp(-t * 5.5f) * Mathf.Sin(t * 19f);
+                float pulse = sustainAmbient
+                    ? .034f * Mathf.Sin(now * 3.45f + i * .19f) : 0f;
+                float spring = (landing + pulse) * a;
+                output.ScaleX += spring;
+                output.ScaleY += spring;
             }
             a = fx.Get("stagger");
             if (a > 0f)

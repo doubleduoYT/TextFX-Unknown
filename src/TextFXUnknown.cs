@@ -10,7 +10,7 @@ using UnityEngine;
 
 namespace HGSoft.TextFXUnknown
 {
-    [BepInPlugin("com.hgsoft.textfxunknown", "TextFX Unknown", "0.7.3")]
+    [BepInPlugin("com.hgsoft.textfxunknown", "TextFX Unknown", "0.7.4")]
     public sealed partial class TextFXUnknownPlugin : BaseUnityPlugin
     {
         private Harmony harmony;
@@ -29,6 +29,7 @@ namespace HGSoft.TextFXUnknown
         // Even if a preset is excessively strong, a glyph cannot fly across the screen.
         private BepInEx.Configuration.ConfigEntry<float> effectStrength;
         private BepInEx.Configuration.ConfigEntry<float> maxGlyphTravel;
+        private BepInEx.Configuration.ConfigEntry<bool> sustainAmbient;
 
         private void Awake()
         {
@@ -39,6 +40,9 @@ namespace HGSoft.TextFXUnknown
                 "Multiplier for glyph movement, bounce, glitch and color. Recommended default 0.85; accepted range 0..1.");
             maxGlyphTravel = Config.Bind("Visuals", "MaxGlyphTravel", 0.21f,
                 "Maximum movement of a glyph as a fraction of its own height (clamped to 0..0.30).");
+            sustainAmbient = Config.Bind("Visuals", "SustainAmbientEffects", true,
+                "Keep subtle Bounce, Float, Elastic and Spring loops while dialogue remains visible. " +
+                "Entrance-only effects such as Fade In and Drop still finish once.");
             // Preserve deliberate custom settings, but migrate the two extremely
             // subtle DEFAULT values from 0.4.1 once on upgrade. Otherwise a
             // previously generated cfg would override the new, visible defaults.
@@ -76,7 +80,7 @@ namespace HGSoft.TextFXUnknown
             }
             InitializeDialogueHooks();
             InitializeCuratedProfiles();
-            Logger.LogInfo("TextFX Unknown 0.7.3 loaded. Patched TMP text methods: " + patched.Count + "; AutoDialogue=" + autoDialogue.Value);
+            Logger.LogInfo("TextFX Unknown 0.7.4 loaded. Patched TMP text methods: " + patched.Count + "; AutoDialogue=" + autoDialogue.Value);
         }
 
         private static MethodInfo FindMethod(Type type, string name, int count, Type firstType = null)
@@ -388,7 +392,8 @@ namespace HGSoft.TextFXUnknown
                     (glyphHeight * strength * envelope);
                 // Additional user-selected glyph effects run inside the same safety
                 // envelope. They cannot bypass the per-character travel limit.
-                var extras = EvaluateExtendedEffects(fx, i, count, now, age);
+                var extras = EvaluateExtendedEffects(fx, i, count, now, age,
+                    sustainAmbient != null && sustainAmbient.Value);
                 displacement += extras.Offset * (glyphHeight * strength);
                 // Hard cap prevents the off-screen scattered characters seen in 0.4.0.
                 // F8 is stronger, but still safely confined to 27% of glyph height.

@@ -1,22 +1,28 @@
-# TextFX Unknown v0.7.3 Preview 1 — Dialogue JSON FX Converter
+# TextFX Unknown v0.7.4 — Persistent Dialogue FX Hotfix
 
-This release adds an opt-in tool to apply TextFX's **human-curated dialogue effects directly to the user's local original C:U 7.0 language files**, rather than only matching text at runtime.
+This update responds to a report that some dialogue effects appeared only **while the text was typing** and disappeared immediately or soon after the last character was shown.
 
-## Included
-- `source/apply_effects_to_locale.py`: generates a **new** UTF-8 JSON whose character dialogue strings contain TextFX animation tags; accepts EN.json and ko-KR.json and supports `--dry-run`.
-- Mapping is read from `source/TextFXUnknown.Curated.cs`, which contains 177 event groups, 194 specific line overrides and 61 unique handpicked effects.
-- Preserves literal dialogue, rich text, and all unrelated locale content. Idempotent and refuses overwrite of the source.
-- CI automated tests exercise the full event index using synthetic strings, verify valid JSON output and ensure no duplicate tags when run twice.
-- The compiled DLL has no functional renderer changes beyond version 0.7.3; retains v0.7.2's tighter giant-glyph safety checks, F7 emergency suspension and F8 diagnostic.
-- Release archive includes DLL, source, conversion tool and tests **but no original dialogue files or README**.
+## What changed
+- **Bounce:** retains its one-shot per-letter entrance, then transitions into a gentle ongoing rhythmic bounce until the dialogue disappears.
+- **Float:** keeps its original rise-in animation, followed by a slow hovering movement.
+- **Elastic:** retains a brief arrival stretch, then a restrained elastic oscillation.
+- **Spring:** finishes the initial spring-back, then continues as a small rhythmic pulse.
+- Existing **Breathe, Heartbeat, Sway, Rotate, Tremble, Rainbow, Color Pulse, Flicker, Hologram, etc.** already loop and remain supported.
+- **One-shot reveals intentionally remain one-shot:** Fade In, Fade Out, Drop, Slide, Zoom In, Zoom Out, Spin In, Assemble, Blur Reveal and Stagger are not forced to loop. They settle naturally into the finished text.
+- **Config toggle:** `[Visuals] SustainAmbientEffects = true` by default, or set to `false` to restore the old one-shot behavior for Bounce, Float, Elastic and Spring.
+- All 50 effect tags, 61 manually curated situation profiles, 177 event groups, 194 dialogue exceptions, original C:U typewriter timing, and F7/F8 controls remain in place.
+- The previously created `generated/ko-KR.TextFX.json` already has the needed tags. **It does not need to be regenerated or replaced for this DLL update.**
 
-## Usage after extracting the ZIP
+## Visual safety
+All added motion uses the original glyph mesh coordinate baseline and the existing strict translation and scale limits. This update does not enable any full-screen text scaling.
 
-```bash
-python source/apply_effects_to_locale.py ko-KR.json -o ko-KR.TextFX.json
-python source/apply_effects_to_locale.py EN.json -o EN.TextFX.json
-```
+## Installation
+1. Completely exit Casualties: Unknown.
+2. Replace `BepInEx/plugins/TextFXUnknown.dll` with the DLL from this ZIP.
+3. Restart and confirm `TextFX Unknown 0.7.4 loaded` in `BepInEx/LogOutput.log`.
+4. Let a dialogue finish, then observe a line with Bounce/Float/Spring/Elastic for persistent movement.
+5. **F7** suspends all effects if a visual issue remains; **F8** runs the visual diagnostic.
 
-Replace only the locale JSON used by your translation plugin **after backing it up**, and use the filename it expects. The `*.TextFX.json` output is not auto-loaded by name. Do not install raw animation tags without the corresponding TextFX Unknown DLL.
+The release archive includes the compiled DLL and sources/tests, **no README and no copyrighted original game text**.
 
-The direct converter is tested in CI with synthetic source data, not actual in-game visual rendering. This is an unofficial fan-made Windows Mono/BepInEx 5 mod for the 7.0 demo.
+GitHub Actions validates compilation and effect lifetime invariants. The actual in-game visual behavior still requires verification by the player.

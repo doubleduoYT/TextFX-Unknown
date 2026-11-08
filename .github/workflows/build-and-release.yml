@@ -26,6 +26,8 @@ jobs:
         run: python3 scripts/test_geometry_safety.py
       - name: Validate locale JSON rewriting
         run: python3 scripts/test_locale_converter.py
+      - name: Test entrance versus persistent effect lifetimes
+        run: python3 scripts/test_sustain_effects.py
       - name: Compile actual mod DLL
         run: dotnet build src/TextFXUnknown.csproj -c Release --nologo
       - name: Package DLL and source only (exclude README)
@@ -33,15 +35,15 @@ jobs:
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: TextFX-Unknown-v0.7.3-pre.1
-          path: dist/TextFX-Unknown-v0.7.3-pre.1.zip
+          name: TextFX-Unknown-v0.7.4-pre.1
+          path: dist/TextFX-Unknown-v0.7.4-pre.1.zip
       - name: Publish prerelease
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.7.3-pre.1
+          tag_name: v0.7.4-pre.1
           target_commitish: ${{ github.sha }}
-          name: TextFX Unknown v0.7.3 Preview 1
+          name: TextFX Unknown v0.7.4 Preview 1
           body_path: RELEASE_NOTES.md
           prerelease: true
-          files: dist/TextFX-Unknown-v0.7.3-pre.1.zip
+          files: dist/TextFX-Unknown-v0.7.4-pre.1.zip
           fail_on_unmatched_files: true

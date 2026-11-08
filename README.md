@@ -41,6 +41,23 @@ The converter:
 
 The ZIP contains **the converter and source, not pre-modified original game dialogues**. This avoids redistributing the game's localization assets. The converter is tested with a synthetic complete event structure, but real gameplay output still requires verification.
 
+## v0.7.4: Effects continue after the typewriter finishes
+
+Some effects previously ended as the game finished revealing the dialogue letters. **Bounce, Float, Elastic, and Spring** now have a two-stage animation: a stronger *entrance* when each glyph becomes visible, plus a gentle *persistent* loop that remains active while the completed dialogue stays on screen.
+
+Other looping effects such as `breathe`, `heartbeat`, `sway`, `rotate`, `tremble`, `rainbow`, and `colorpulse` already repeat by design. **Entrance-only** effects such as `fadein`, `drop`, `slide`, `zoomin`, `zoomout`, `spinin`, `assemble`, and `stagger` intentionally finish and settle rather than repeating indefinitely.
+
+To turn off the new persistent loops, set the following value in `BepInEx/config/com.hgsoft.textfxunknown.cfg`:
+
+```ini
+[Visuals]
+SustainAmbientEffects = false
+```
+
+The default is **true**. The loops are bounded by the same strict local glyph movement/scale limits as in v0.7.3. No changes are needed to your existing `ko-KR.TextFX.json`, which already has the relevant effect tags. The original game typewriter timing is unchanged.
+
+**F7** remains the emergency disable/re-enable hotkey. **F8** is the six-second visual diagnostic. C:U in-game visual verification is still pending.
+
 ## v0.7.2 safety hotfix: oversized isolated characters
 
 Reports from v0.7.1 showed some individual Hangul syllables still appearing far larger than the text surrounding them. The previous hotfix used `TMP_CharacterInfo` corner metrics as the source vertices. Those metrics are **not guaranteed to match the actual glyph quad in the TextMeshPro material submesh**, which can cause even bounded transforms to write the wrong geometry.
@@ -51,7 +68,7 @@ Safety limits are even tighter: each glyph is scaled at most **92–108%** of it
 
 **Press F7** in game for the emergency off/on switch if a visual problem remains, or temporarily remove `TextFXUnknown.dll` entirely. F8 is the separate six-second visual diagnostic.
 
-Do not install v0.7.2 while the game is running. Completely close C:U, replace the DLL, then relaunch. Confirm `TextFX Unknown 0.7.3 loaded` in `BepInEx/LogOutput.log`.
+Do not install v0.7.2 while the game is running. Completely close C:U, replace the DLL, then relaunch. Confirm `TextFX Unknown 0.7.4 loaded` in `BepInEx/LogOutput.log`.
 
 Compiled and statically checked by GitHub Actions; **the in-game visual correction still needs user verification**.
 
@@ -65,7 +82,7 @@ The fixed renderer obtains all four **original glyph corners from `TMP_Character
 
 Press **F7** in-game to immediately stop all TextFX rendering for the current session and ask TextMeshPro to restore its original meshes. Press it again to enable TextFX. The switch does not edit or delete configuration, translation JSON or game assets. Use F7 if effects ever obscure gameplay again.
 
-To install, **exit the game completely**, replace `BepInEx/plugins/TextFXUnknown.dll` with the version from `v0.7.3-pre.1`, restart, and confirm `TextFX Unknown 0.7.3 loaded` in `BepInEx/LogOutput.log`. Do not try to hot-swap the DLL while C:U is running.
+To install, **exit the game completely**, replace `BepInEx/plugins/TextFXUnknown.dll` with the version from `v0.7.4-pre.1`, restart, and confirm `TextFX Unknown 0.7.4 loaded` in `BepInEx/LogOutput.log`. Do not try to hot-swap the DLL while C:U is running.
 
 This fixes a specific accumulation mechanism in code. GitHub Actions verifies compilation and safety invariants, **not live rendering inside the game**. Please report any remaining visual problems with a new screenshot and BepInEx log.
 
@@ -188,9 +205,9 @@ No external character or item assets are bundled. **Textures, images, portraits 
 ## Installing
 
 1. Install **BepInEx 5 (Mono, Windows x64)** in your copy of Casualties: Unknown. [BepInEx releases](https://github.com/BepInEx/BepInEx/releases).
-2. Open the [latest TextFX Unknown release](../../releases) and download `TextFX-Unknown-v0.7.3-pre.1.zip`.
+2. Open the [latest TextFX Unknown release](../../releases) and download `TextFX-Unknown-v0.7.4-pre.1.zip`.
 3. From the ZIP, extract **`BepInEx/plugins/TextFXUnknown.dll`** into the corresponding folder inside your game directory.
-4. Launch the game and look for `TextFX Unknown 0.7.3 loaded` in `BepInEx/LogOutput.log`.
+4. Launch the game and look for `TextFX Unknown 0.7.4 loaded` in `BepInEx/LogOutput.log`.
 
 The ZIP also contains editable **source code**, but you don't need it just to play. It intentionally **does not contain a README**, BepInEx itself, game files, or Unity reference DLLs.
 
