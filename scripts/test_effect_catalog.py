@@ -21,7 +21,7 @@ registry=set(tag_decl.group(1).split("|"))
 assert set(names)<=registry, "missing tags: "+str(set(names)-registry)
 for name in names:
     assert name in core or name in extended, "missing implementation mention: "+name
-assert "EvaluateExtendedEffects(fx, i, count, now, age)" in core
+assert "EvaluateExtendedEffects(fx, i, count, now, age," in core
 assert "FxRevealStep(fx, i, count)" in core
 assert "IsPunctuation(" in core
 assert "Vector2.ClampMagnitude(displacement" in core, "travel cap removed"
