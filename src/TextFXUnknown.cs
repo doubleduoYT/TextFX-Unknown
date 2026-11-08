@@ -10,7 +10,7 @@ using UnityEngine;
 
 namespace HGSoft.TextFXUnknown
 {
-    [BepInPlugin("com.hgsoft.textfxunknown", "TextFX Unknown", "0.7.6")]
+    [BepInPlugin("com.hgsoft.textfxunknown", "TextFX Unknown", "0.8.0")]
     public sealed partial class TextFXUnknownPlugin : BaseUnityPlugin
     {
         private Harmony harmony;
@@ -19,6 +19,7 @@ namespace HGSoft.TextFXUnknown
         private Type tmpType;
         private PropertyInfo textProperty;
         private PropertyInfo maxVisibleProperty;
+        private PropertyInfo textColorProperty;
         private MethodInfo forceMeshUpdate;
         private MethodInfo updateGeometry;
         private PropertyInfo textInfoProperty;
@@ -26,6 +27,12 @@ namespace HGSoft.TextFXUnknown
         private bool warned;
         private bool effectsSuspended;
         private int resetMessagesLogged;
+        private BepInEx.Configuration.ConfigEntry<bool> experimentalMeshRenderer;
+        // The safe renderer never calls ForceMeshUpdate, UpdateGeometry or
+        // manipulates TMP_MeshInfo buffers. The legacy glyph renderer remains
+        // available only by explicit opt-in for controlled debugging.
+        private bool UseSafeRenderer { get { return experimentalMeshRenderer == null ||
+            !experimentalMeshRenderer.Value; } }
         // Motion is always measured in glyph-local units, NEVER Unity world units.
         // Even if a preset is excessively strong, a glyph cannot fly across the screen.
         private BepInEx.Configuration.ConfigEntry<float> effectStrength;
@@ -44,6 +51,9 @@ namespace HGSoft.TextFXUnknown
             sustainAmbient = Config.Bind("Visuals", "SustainAmbientEffects", true,
                 "Keep subtle Bounce, Float, Elastic and Spring loops while dialogue remains visible. " +
                 "Entrance-only effects such as Fade In and Drop still finish once.");
+            experimentalMeshRenderer = Config.Bind("Safety", "EnableExperimentalGlyphMesh", false,
+                "DANGEROUS legacy per-glyph renderer. May corrupt Korean font fallback or produce large squares. " +
+                "False (recommended): safe dialogue-level animation without modifying TMP mesh buffers.");
             // Preserve deliberate custom settings, but migrate the two extremely
             // subtle DEFAULT values from 0.4.1 once on upgrade. Otherwise a
             // previously generated cfg would override the new, visible defaults.
@@ -62,6 +72,7 @@ namespace HGSoft.TextFXUnknown
             tmpType = Type.GetType("TMPro.TMP_Text, Unity.TextMeshPro", false);
             if (tmpType == null) { Logger.LogWarning("TextMeshPro not found: TextFX Unknown is inactive."); return; }
             textProperty = tmpType.GetProperty("text", BindingFlags.Public | BindingFlags.Instance);
+            textColorProperty = tmpType.GetProperty("color", BindingFlags.Public | BindingFlags.Instance);
             maxVisibleProperty = tmpType.GetProperty("maxVisibleCharacters", BindingFlags.Public | BindingFlags.Instance);
             textInfoProperty = tmpType.GetProperty("textInfo", BindingFlags.Public | BindingFlags.Instance);
             forceMeshUpdate = FindMethod(tmpType, "ForceMeshUpdate", 2) ?? FindMethod(tmpType, "ForceMeshUpdate", 1) ?? FindMethod(tmpType, "ForceMeshUpdate", 0);
@@ -81,7 +92,10 @@ namespace HGSoft.TextFXUnknown
             }
             InitializeDialogueHooks();
             InitializeCuratedProfiles();
-            Logger.LogInfo("TextFX Unknown 0.7.6 loaded. Patched TMP text methods: " + patched.Count + "; AutoDialogue=" + autoDialogue.Value);
+            Logger.LogInfo("[TextFX] Rendering mode: " +
+                (UseSafeRenderer ? "SAFE (no TMP mesh writes; whole-dialogue effects)" :
+                 "EXPERIMENTAL (per-glyph mesh writes enabled)"));
+            Logger.LogInfo("TextFX Unknown 0.8.0 loaded. Patched TMP text methods: " + patched.Count + "; AutoDialogue=" + autoDialogue.Value);
         }
 
         private static MethodInfo FindMethod(Type type, string name, int count, Type firstType = null)
@@ -126,14 +140,31 @@ namespace HGSoft.TextFXUnknown
             if (animations.TryGetValue(componentId, out old) &&
                 old.Component == component && old.Parsed.Text != parsed.Text)
             {
-                RestoreOriginalMesh(component);
-                if (resetMessagesLogged++ < 12)
-                    Logger.LogInfo("[TextFX] New dialogue replaces previous mesh: " +
-                        component.gameObject.name + " (" +
-                        old.Parsed.Text.Length + " -> " + parsed.Text.Length + " chars)");
+                if (UseSafeRenderer)
+                {
+                    RestoreSafeText(old);
+                }
+                else
+                {
+                    RestoreOriginalMesh(component);
+                    if (resetMessagesLogged++ < 12)
+                        Logger.LogInfo("[TextFX] Experimental mesh reset: " +
+                            component.gameObject.name + " (" +
+                            old.Parsed.Text.Length + " -> " + parsed.Text.Length + " chars)");
+                }
             }
             var animation = new TextAnimation(component, parsed);
             animation.Automatic = automatic;
+            if (UseSafeRenderer && textColorProperty != null)
+            {
+                try
+                {
+                    animation.OriginalTextColor =
+                        (Color)textColorProperty.GetValue(component, null);
+                    animation.ColorCaptured = true;
+                }
+                catch { }
+            }
             animations[componentId] = animation;
             if (loggedTags < 12 && !automatic)
             {
@@ -175,7 +206,10 @@ namespace HGSoft.TextFXUnknown
                 // Flush the GPU buffers as well as the CPU-side TMP text info.
                 // ForceMeshUpdate alone did not push blank/stale quads to canvas.
                 foreach (var animation in animations.Values)
-                    RestoreOriginalMesh(animation.Component);
+                {
+                    if (UseSafeRenderer) RestoreSafeText(animation);
+                    else RestoreOriginalMesh(animation.Component);
+                }
                 animations.Clear();
             }
             if (effectsSuspended) return;
@@ -239,7 +273,11 @@ namespace HGSoft.TextFXUnknown
                         try { maxVisibleProperty.SetValue(component, int.MaxValue, null); } catch { }
                     continue;
                 }
-                try { Draw(entry); }
+                try
+                {
+                    if (UseSafeRenderer) DrawSafe(entry);
+                    else Draw(entry);
+                }
                 catch (Exception error)
                 {
                     expired.Add(pair.Key);
@@ -253,7 +291,8 @@ namespace HGSoft.TextFXUnknown
                 {
                     // TextFX must never leave its own transformed vertex buffers
                     // on-screen after a line expires or becomes inactive.
-                    RestoreOriginalMesh(previous.Component);
+                    if (UseSafeRenderer) RestoreSafeText(previous);
+                    else RestoreOriginalMesh(previous.Component);
                     animations.Remove(key);
                 }
             }
@@ -578,6 +617,9 @@ namespace HGSoft.TextFXUnknown
 
         private void OnDestroy()
         {
+            if (UseSafeRenderer)
+                foreach (var pair in animations)
+                    RestoreSafeText(pair.Value);
             if (harmony != null) harmony.UnpatchSelf();
             if (instance == this) instance = null;
         }
@@ -595,8 +637,18 @@ namespace HGSoft.TextFXUnknown
             internal string StyleId;
             internal int LastVisible = -1;
             internal bool Automatic;
+            internal readonly Vector3 OriginalLocalScale;
+            internal readonly Quaternion OriginalLocalRotation;
+            internal Color OriginalTextColor;
+            internal bool ColorCaptured;
             internal TextAnimation(Component component, FxParsed parsed)
-            { Component = component; Parsed = parsed; Started = Time.unscaledTime; }
+            {
+                Component = component;
+                Parsed = parsed;
+                Started = Time.unscaledTime;
+                OriginalLocalScale = component.transform.localScale;
+                OriginalLocalRotation = component.transform.localRotation;
+            }
         }
     }
 

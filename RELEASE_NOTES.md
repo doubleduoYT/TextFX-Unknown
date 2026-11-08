@@ -1,25 +1,23 @@
-# TextFX Unknown v0.7.6 — Old Dialogue Overlap / Stale Glyph Fix
+# TextFX Unknown v0.8.0 — Safe Korean Dialogue Renderer
 
-This hotfix responds to gameplay screenshots showing earlier Korean dialogue fragments overlaid on later lines, alongside occasional solid pale glyph quads. The root cause is **suspected stale TextMeshPro geometry** when characters or font submeshes are reused.
+**Priority: stop corrupted Korean dialogue and giant tan glyph rectangles.** Screenshots and a full BepInEx log from v0.7.6 show repeated attempts to replace character mesh buffers, but broken text persisted. No clear rendering exception was recorded.
 
-## Changes
-- **Reset the prior line before replacement:** when a TalkText component switches to a new sentence, restore its original geometry before installing the next animation state.
-- **Reset expired dialogue:** when an active effect is removed, flush the source geometry back to the renderer, not just the plugin's internal dictionary.
-- **Clear old glyph slots:** all unused per-material quad vertices are zeroed and their alpha cleared. This specifically addresses *long sentence → shorter sentence* transitions.
-- **Flush every material:** upload the regenerated mesh geometry for all TMP materials, not only those whose current characters have active effects. Prevents stale glyphs persisting on GPU canvases or fallback font materials.
-- **F7 emergency reset fixed:** F7 now restores GPU meshes and clears active animation entries, rather than only calling `ForceMeshUpdate`.
-- Keep v0.7.5's dialogue-only target filtering and early `Talker.Talk` TextFX tag sanitation. Preserve all 50 effects, 61 curated presets, and the original game's typewriter timing.
+## New safe default renderer
+- `[Safety] EnableExperimentalGlyphMesh = false` by default (including on existing installs).
+- In SAFE mode **never modify TMP glyph vertices, UVs, mesh materials or GPU submesh buffers**. No `ForceMeshUpdate`/`UpdateGeometry` calls are made from its drawing/cleanup paths.
+- Instead, apply small full-dialogue transform-scale/rotation motion (up to ~2% / ±1.7°) and color tint/pulse using public TMP `color` and Unity Transform APIs.
+- **F7** restores the native text object's scale/rotation/color and suspends the effects.
+- **F8** tests full-dialogue rainbow/color and bounded transform effects without modifying glyph buffers.
+- Keep 50 defined effect tags, 61 curated profiles, 177 situation groups, 194 per-line exceptions, and language detection. SAFE mode intentionally **does not perform per-character visual animation**.
+- Unsafe previous per-glyph renderer exists strictly for opt-in debugging; **do not enable it** during normal Korean play.
 
-## Recommended locale configuration
+## Important installation steps
+1. Fully exit Casualties: Unknown.
+2. Replace `BepInEx/plugins/TextFXUnknown.dll` with the DLL from this release ZIP.
+3. Use the original **untagged** `ko-KR.json` (not `ko-KR.TextFX.json`) for this test, and avoid duplicate locale packs.
+4. Verify `[TextFX] Rendering mode: SAFE` and `TextFX Unknown 0.8.0 loaded` in `BepInEx/LogOutput.log`.
+5. Confirm the top-of-screen Hangul appears correctly across several successive dialogue lines. Press F8 to test the safe visual effects.
+6. If text remains corrupted, remove TextFXUnknown.dll entirely and retest to isolate conflicts with XTMP/Together/other mods.
 
-**For your first test, restore the original untagged `ko-KR.json`** instead of the earlier `ko-KR.TextFX.json`. TextFX retains automatic per-dialogue effects based on its curated runtime locale/phrase index, so the tags do not need to be embedded in the game's actual language strings. This also prevents two text-processing paths from conflicting. The plugin does not delete or modify the user's original JSON.
-
-## Installation and validation
-
-1. Completely quit C:U, then replace `BepInEx/plugins/TextFXUnknown.dll` with the DLL in this ZIP.
-2. Keep the original untagged `ko-KR.json` as the installed locale; do not run the earlier tag-insertion converter for this test.
-3. Restart; confirm `TextFX Unknown 0.7.6 loaded` and `[TextFX] Curated dialogue:` in the log.
-4. Trigger a long character line followed by a short line, and watch for old text/solid squares remaining.
-5. F7 disables effects and restores geometry immediately. If overlap persists, report the log and screenshot.
-
-GitHub Actions validates static mesh cleanup invariants, all earlier effect/locale checks, and an actual DLL compilation and release ZIP. **Actual visual results require a live game test.** Release ZIP includes DLL, source and tests, without README or copyrighted game data.
+## Validation
+GitHub Actions runs the safe renderer source guard, existing 50-tag and locale tests, and a real DLL compilation / ZIP check. The ZIP contains compiled DLL and editable source/tests, not game files or README. **Actual in-game correction still awaits user testing.**

@@ -4,7 +4,7 @@ from pathlib import Path
 root=Path(__file__).resolve().parents[1]
 core=(root/"src/TextFXUnknown.cs").read_text(encoding="utf-8")
 auto=(root/"src/TextFXUnknown.Automatic.cs").read_text(encoding="utf-8")
-assert '[BepInPlugin("com.hgsoft.textfxunknown", "TextFX Unknown", "0.7.6")]' in core
+assert '[BepInPlugin("com.hgsoft.textfxunknown", "TextFX Unknown", "0.8.0")]' in core
 assert "if (!NameLooksLikeDialogue(component)) return;" in core, "Draw must reject HUD"
 assert "component != null && NameLooksLikeDialogue(component)" in core, "Tagged setters must not animate HUD"
 assert "if (NameLooksLikeDialogue(component))\n                        Animate(component, parsed);" in core, "Slow scanner must not animate HUD"
