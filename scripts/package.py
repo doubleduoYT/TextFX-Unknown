@@ -10,7 +10,7 @@ DIST.mkdir(exist_ok=True)
 DLL=ROOT/'src/bin/Release/netstandard2.1/TextFXUnknown.dll'
 if not DLL.exists() or DLL.stat().st_size < 4096:
     raise SystemExit('Build DLL not found or too small: '+str(DLL))
-OUTPUT=DIST/'TextFX-Unknown-v0.7.2-pre.1.zip'
+OUTPUT=DIST/'TextFX-Unknown-v0.7.3-pre.1.zip'
 content={
     'BepInEx/plugins/TextFXUnknown.dll': DLL,
     'source/TextFXUnknown.cs': ROOT/'src/TextFXUnknown.cs',
@@ -19,6 +19,8 @@ content={
     'source/TextFXUnknown.Extended.cs': ROOT/'src/TextFXUnknown.Extended.cs',
     'source/test_effect_catalog.py': ROOT/'scripts/test_effect_catalog.py',
     'source/test_geometry_safety.py': ROOT/'scripts/test_geometry_safety.py',
+    'source/apply_effects_to_locale.py': ROOT/'scripts/apply_effects_to_locale.py',
+    'source/test_locale_converter.py': ROOT/'scripts/test_locale_converter.py',
     'source/test_curated_mapping.py': ROOT/'scripts/test_curated_mapping.py',
     'source/TextFXUnknown.csproj': ROOT/'src/TextFXUnknown.csproj',
     'source/download_references.py': ROOT/'scripts/download_references.py',

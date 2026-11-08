@@ -15,6 +15,32 @@ TextFX Unknown is an **unofficial, experimental BepInEx 5 mod** that gives dialo
 - **TextMeshPro formatting:** preserve built-in tags like `<color>`, `<b>`, `<i>`, `<size>`, and `<sprite>`.
 - **Korean and English:** the effects work with both, as long as the game actually passes the tagged text to a TMP text component.
 
+## v0.7.3: apply effects directly to your dialogue JSON
+
+v0.7.3 includes a **separate, local-only JSON converter** for users who want the effects physically embedded in their C:U dialogue language file, in addition to the existing automatic runtime mapping.
+
+From the extracted release ZIP, run:
+
+```bash
+python source/apply_effects_to_locale.py ko-KR.json -o ko-KR.TextFX.json
+python source/apply_effects_to_locale.py EN.json -o EN.TextFX.json
+```
+
+You can instead use `python scripts/apply_effects_to_locale.py ...` from a cloned repository. Python 3.8+ is sufficient; no third-party packages needed.
+
+The converter:
+- Loads your **own local English/Korean C:U 7.0 JSON**, reads `character[speaker][event][line]` and uses the same **177 context profiles + 194 individually curated exceptions + 61 styles** as the plugin.
+- Wraps character dialogue strings in paired TextFX tags such as `<bounce=0.7><fadein=0.2>...</fadein></bounce>`.
+- Never changes `name`, descriptions, menus, unrelated entries or the original dialogue's words.
+- Refuses to overwrite your original file, skips dialogue already containing effect tags, and can run `--dry-run` to count prospective changes.
+- Preserves Unicode/Korean and outputs valid UTF-8 JSON.
+
+**Installation:** The output filename `ko-KR.TextFX.json` is a generated copy, **not a built-in auto-load name**. Back up the active translation JSON in your locale mod; install the generated file under the **same filename and location your language pack actually loads** (for example `ko-KR.json`). A JSON that is simply placed in an arbitrary folder may not be loaded by C:U.
+
+**Requires TextFX Unknown BepInEx to be installed.** The XML-like custom animation tags are not native Unity TMP tags and may appear literally without the plugin. Avoid modifying the official game files directly. The plugin's manual tags take precedence over automatic inferred effects, so there is no double animation.
+
+The ZIP contains **the converter and source, not pre-modified original game dialogues**. This avoids redistributing the game's localization assets. The converter is tested with a synthetic complete event structure, but real gameplay output still requires verification.
+
 ## v0.7.2 safety hotfix: oversized isolated characters
 
 Reports from v0.7.1 showed some individual Hangul syllables still appearing far larger than the text surrounding them. The previous hotfix used `TMP_CharacterInfo` corner metrics as the source vertices. Those metrics are **not guaranteed to match the actual glyph quad in the TextMeshPro material submesh**, which can cause even bounded transforms to write the wrong geometry.
@@ -25,7 +51,7 @@ Safety limits are even tighter: each glyph is scaled at most **92–108%** of it
 
 **Press F7** in game for the emergency off/on switch if a visual problem remains, or temporarily remove `TextFXUnknown.dll` entirely. F8 is the separate six-second visual diagnostic.
 
-Do not install v0.7.2 while the game is running. Completely close C:U, replace the DLL, then relaunch. Confirm `TextFX Unknown 0.7.2 loaded` in `BepInEx/LogOutput.log`.
+Do not install v0.7.2 while the game is running. Completely close C:U, replace the DLL, then relaunch. Confirm `TextFX Unknown 0.7.3 loaded` in `BepInEx/LogOutput.log`.
 
 Compiled and statically checked by GitHub Actions; **the in-game visual correction still needs user verification**.
 
@@ -39,7 +65,7 @@ The fixed renderer obtains all four **original glyph corners from `TMP_Character
 
 Press **F7** in-game to immediately stop all TextFX rendering for the current session and ask TextMeshPro to restore its original meshes. Press it again to enable TextFX. The switch does not edit or delete configuration, translation JSON or game assets. Use F7 if effects ever obscure gameplay again.
 
-To install, **exit the game completely**, replace `BepInEx/plugins/TextFXUnknown.dll` with the version from `v0.7.2-pre.1`, restart, and confirm `TextFX Unknown 0.7.2 loaded` in `BepInEx/LogOutput.log`. Do not try to hot-swap the DLL while C:U is running.
+To install, **exit the game completely**, replace `BepInEx/plugins/TextFXUnknown.dll` with the version from `v0.7.3-pre.1`, restart, and confirm `TextFX Unknown 0.7.3 loaded` in `BepInEx/LogOutput.log`. Do not try to hot-swap the DLL while C:U is running.
 
 This fixes a specific accumulation mechanism in code. GitHub Actions verifies compilation and safety invariants, **not live rendering inside the game**. Please report any remaining visual problems with a new screenshot and BepInEx log.
 
@@ -162,9 +188,9 @@ No external character or item assets are bundled. **Textures, images, portraits 
 ## Installing
 
 1. Install **BepInEx 5 (Mono, Windows x64)** in your copy of Casualties: Unknown. [BepInEx releases](https://github.com/BepInEx/BepInEx/releases).
-2. Open the [latest TextFX Unknown release](../../releases) and download `TextFX-Unknown-v0.7.2-pre.1.zip`.
+2. Open the [latest TextFX Unknown release](../../releases) and download `TextFX-Unknown-v0.7.3-pre.1.zip`.
 3. From the ZIP, extract **`BepInEx/plugins/TextFXUnknown.dll`** into the corresponding folder inside your game directory.
-4. Launch the game and look for `TextFX Unknown 0.7.2 loaded` in `BepInEx/LogOutput.log`.
+4. Launch the game and look for `TextFX Unknown 0.7.3 loaded` in `BepInEx/LogOutput.log`.
 
 The ZIP also contains editable **source code**, but you don't need it just to play. It intentionally **does not contain a README**, BepInEx itself, game files, or Unity reference DLLs.
 
