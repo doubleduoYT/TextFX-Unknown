@@ -10,7 +10,7 @@ using UnityEngine;
 
 namespace HGSoft.TextFXUnknown
 {
-    [BepInPlugin("com.hgsoft.textfxunknown", "TextFX Unknown", "0.7.5")]
+    [BepInPlugin("com.hgsoft.textfxunknown", "TextFX Unknown", "0.7.6")]
     public sealed partial class TextFXUnknownPlugin : BaseUnityPlugin
     {
         private Harmony harmony;
@@ -25,6 +25,7 @@ namespace HGSoft.TextFXUnknown
         private float nextScan;
         private bool warned;
         private bool effectsSuspended;
+        private int resetMessagesLogged;
         // Motion is always measured in glyph-local units, NEVER Unity world units.
         // Even if a preset is excessively strong, a glyph cannot fly across the screen.
         private BepInEx.Configuration.ConfigEntry<float> effectStrength;
@@ -80,7 +81,7 @@ namespace HGSoft.TextFXUnknown
             }
             InitializeDialogueHooks();
             InitializeCuratedProfiles();
-            Logger.LogInfo("TextFX Unknown 0.7.5 loaded. Patched TMP text methods: " + patched.Count + "; AutoDialogue=" + autoDialogue.Value);
+            Logger.LogInfo("TextFX Unknown 0.7.6 loaded. Patched TMP text methods: " + patched.Count + "; AutoDialogue=" + autoDialogue.Value);
         }
 
         private static MethodInfo FindMethod(Type type, string name, int count, Type firstType = null)
@@ -117,9 +118,23 @@ namespace HGSoft.TextFXUnknown
 
         private void Animate(Component component, FxParsed parsed, bool automatic = false)
         {
+            // When C:U reuses the same TalkText for a new sentence, flush old
+            // animated triangles FIRST. Otherwise old glyph quads may remain
+            // on the renderer after the text becomes shorter.
+            TextAnimation old;
+            int componentId = component.GetInstanceID();
+            if (animations.TryGetValue(componentId, out old) &&
+                old.Component == component && old.Parsed.Text != parsed.Text)
+            {
+                RestoreOriginalMesh(component);
+                if (resetMessagesLogged++ < 12)
+                    Logger.LogInfo("[TextFX] New dialogue replaces previous mesh: " +
+                        component.gameObject.name + " (" +
+                        old.Parsed.Text.Length + " -> " + parsed.Text.Length + " chars)");
+            }
             var animation = new TextAnimation(component, parsed);
             animation.Automatic = automatic;
-            animations[component.GetInstanceID()] = animation;
+            animations[componentId] = animation;
             if (loggedTags < 12 && !automatic)
             {
                 loggedTags++;
@@ -157,22 +172,11 @@ namespace HGSoft.TextFXUnknown
                 effectsSuspended = !effectsSuspended;
                 Logger.LogWarning("[TextFX] F7 emergency FX toggle: " +
                     (effectsSuspended ? "SUSPENDED" : "RESTORED"));
-                // Ensure previously transformed meshes are drawn unmodified.
+                // Flush the GPU buffers as well as the CPU-side TMP text info.
+                // ForceMeshUpdate alone did not push blank/stale quads to canvas.
                 foreach (var animation in animations.Values)
-                {
-                    var target = animation.Component;
-                    if (target == null) continue;
-                    try
-                    {
-                        var parameters = forceMeshUpdate.GetParameters();
-                        var resetArgs = new object[parameters.Length];
-                        for (int i = 0; i < resetArgs.Length; i++) resetArgs[i] = false;
-                        if (resetArgs.Length > 0) resetArgs[0] = true;
-                        if (resetArgs.Length > 1) resetArgs[1] = true;
-                        forceMeshUpdate.Invoke(target, resetArgs);
-                    }
-                    catch { }
-                }
+                    RestoreOriginalMesh(animation.Component);
+                animations.Clear();
             }
             if (effectsSuspended) return;
             if (LegacyKeyDown(KeyCode.F8)) StartDiagnostic();
@@ -242,12 +246,96 @@ namespace HGSoft.TextFXUnknown
                     if (!warned) { warned = true; Logger.LogWarning("Unable to render text effects: " + error.GetType().Name + ": " + error.Message); }
                 }
             }
-            foreach (var key in expired) animations.Remove(key);
+            foreach (var key in expired)
+            {
+                TextAnimation previous;
+                if (animations.TryGetValue(key, out previous))
+                {
+                    // TextFX must never leave its own transformed vertex buffers
+                    // on-screen after a line expires or becomes inactive.
+                    RestoreOriginalMesh(previous.Component);
+                    animations.Remove(key);
+                }
+            }
         }
 
         private static object Field(object instance, string name)
         {
             return instance.GetType().GetField(name, BindingFlags.Public | BindingFlags.Instance).GetValue(instance);
+        }
+
+        // TMP reuses mesh vertex capacity between different length strings.
+        // A previous 40-glyph line can leave visible triangles after switching
+        // to a 12-glyph line, unless every material's unused quads are cleared
+        // and UPLOADED. This is separate from the actual per-letter FX.
+        private void CommitVisibleTextMeshes(Component component, object info)
+        {
+            if (component == null || info == null) return;
+            var meshInfos = Field(info, "meshInfo") as Array;
+            var charInfos = Field(info, "characterInfo") as Array;
+            if (meshInfos == null || charInfos == null) return;
+            int characterCount = Math.Min((int)Field(info, "characterCount"), charInfos.Length);
+            var liveQuads = new HashSet<int>[meshInfos.Length];
+            for (int material = 0; material < liveQuads.Length; material++)
+                liveQuads[material] = new HashSet<int>();
+            for (int i = 0; i < characterCount; i++)
+            {
+                var ch = charInfos.GetValue(i);
+                if (!(bool)Field(ch, "isVisible")) continue;
+                int material = (int)Field(ch, "materialReferenceIndex");
+                int vertex = (int)Field(ch, "vertexIndex");
+                if (material >= 0 && material < liveQuads.Length && vertex >= 0)
+                    liveQuads[material].Add(vertex);
+            }
+            for (int material = 0; material < meshInfos.Length; material++)
+            {
+                var meshInfo = meshInfos.GetValue(material);
+                var mesh = Field(meshInfo, "mesh") as Mesh;
+                var vertices = Field(meshInfo, "vertices") as Vector3[];
+                var colors = Field(meshInfo, "colors32") as Color32[];
+                if (mesh == null || vertices == null || colors == null) continue;
+                int capacity = Math.Min(vertices.Length, colors.Length);
+                for (int vertex = 0; vertex + 3 < capacity; vertex += 4)
+                {
+                    if (liveQuads[material].Contains(vertex)) continue;
+                    // Stale slot: remove both its geometry and opacity, leaving
+                    // no visible remnants from the previous dialogue line.
+                    for (int j = 0; j < 4; j++)
+                    {
+                        vertices[vertex + j] = Vector3.zero;
+                        var color = colors[vertex + j];
+                        color.a = 0;
+                        colors[vertex + j] = color;
+                    }
+                }
+                mesh.vertices = vertices;
+                mesh.colors32 = colors;
+                // Prior releases updated ONLY materials receiving an FX.
+                // That left old triangles in inactive TMP submesh materials.
+                updateGeometry.Invoke(component, new object[] { mesh, material });
+            }
+        }
+
+        private void RestoreOriginalMesh(Component component)
+        {
+            if (component == null || forceMeshUpdate == null || updateGeometry == null)
+                return;
+            try
+            {
+                var parameterInfo = forceMeshUpdate.GetParameters();
+                var args = new object[parameterInfo.Length];
+                for (int i = 0; i < args.Length; i++) args[i] = false;
+                if (args.Length > 0) args[0] = true;
+                if (args.Length > 1) args[1] = true;
+                forceMeshUpdate.Invoke(component, args);
+                CommitVisibleTextMeshes(component, textInfoProperty.GetValue(component, null));
+            }
+            catch (Exception e)
+            {
+                if (resetMessagesLogged++ < 12)
+                    Logger.LogWarning("[TextFX] Could not refresh old dialogue mesh: " +
+                        e.GetType().Name + " / " + e.Message);
+            }
         }
 
         private void Draw(TextAnimation entry)
@@ -345,7 +433,6 @@ namespace HGSoft.TextFXUnknown
                 }
             }
             cursor = 0f;
-            var used = new HashSet<int>();
             for (int i = 0; i < count; i++)
             {
                 var charInfo = chars.GetValue(i);
@@ -483,16 +570,10 @@ namespace HGSoft.TextFXUnknown
                     }
                     colors[v + j] = c;
                 }
-                used.Add(m);
             }
-            foreach (var m in used)
-            {
-                var meshInfo = meshes.GetValue(m);
-                var mesh = (Mesh)Field(meshInfo, "mesh");
-                mesh.vertices = (Vector3[])Field(meshInfo, "vertices");
-                mesh.colors32 = (Color32[])Field(meshInfo, "colors32");
-                updateGeometry.Invoke(component, new object[] { mesh, m });
-            }
+            // Upload every material, even those with no surviving FX or
+            // no current glyphs, so older character quads cannot bleed through.
+            CommitVisibleTextMeshes(component, info);
         }
 
         private void OnDestroy()
